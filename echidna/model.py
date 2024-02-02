@@ -32,16 +32,16 @@ class Echidna:
             self.guide = poutine.scale(self.guide_st, scale=self.log_prob_scaler)
         else:
             raise AttributeError("Invalid mode for Enchidna. Please select between single timepoint(ST) and multi timepoint(MT)")
-        
+
         super().__init__()
-    
+
     def model_st(self, X, W, pi, z):
         library_size = X.sum(-1, keepdim=True) * 1e-5
 
         # MLE estimate of the shape parameter of C
-        c_alpha = pyro.param("c_alpha", torch.ones(1,self.num_genes), 
+        c_alpha = pyro.param("c_alpha", torch.ones(1,self.num_genes),
                              constraint=dist.constraints.positive)
-        
+
         # Create sampling dimensions
         gene_plate = pyro.plate('G:genes', self.num_genes, dim=-1, device=self.device)
         cluster_plate = pyro.plate('K:clusters', self.num_clusters, dim=-2, device=self.device)
@@ -58,8 +58,8 @@ class Echidna:
         with gene_plate:
           eta = pyro.sample("eta", dist.MultivariateNormal(torch.ones(self.num_clusters) * 2, scale_tril=cholesky_cov))
           eta = F.softplus(eta).T
-        
-        
+
+
         # Sample W
         with gene_plate:
             pyro.sample('W', TruncatedNormal(pi @ eta, 0.05, lower=0.), obs=W)
@@ -68,29 +68,29 @@ class Echidna:
         with gene_plate:
           with cluster_plate:
             c = pyro.sample('c', dist.Gamma(c_alpha, 1/eta))
-        
+
         # Sample X
         c_scale = c * torch.mean(eta,axis=1).repeat(self.num_genes,1).T
         rate = c_scale[z] * library_size
         pyro.sample('X', dist.Poisson(rate).to_event(), obs=X)
-    
+
     def guide_st(self, X, W, pi, z):
         # Create sampling dimensions
         gene_plate = pyro.plate('G:genes', self.num_genes, dim=-1, device=self.device)
         cluster_plate = pyro.plate('K:clusters', self.num_clusters, dim=-2, device=self.device)
 
         # Initialize variational parameters
-        q_eta_mean = pyro.param('eta_mean', lambda:dist.MultivariateNormal(torch.ones(self.num_clusters) * 2, 
+        q_eta_mean = pyro.param('eta_mean', lambda:dist.MultivariateNormal(torch.ones(self.num_clusters) * 2,
                                                                            torch.eye(self.num_clusters)).sample([self.num_genes]))
-        q_c_delta = pyro.param("c_map", torch.ones(self.num_clusters, self.num_genes), 
+        q_c_delta = pyro.param("c_map", torch.ones(self.num_clusters, self.num_genes),
                                constraint=dist.constraints.positive)
-        
+
         # Variational distribution of cluster covariance
 
         # Variational distribution for diagonal
-        shape = pyro.param('scale_shape', self.q_shape_rate_scaler * torch.ones(self.num_clusters), 
+        shape = pyro.param('scale_shape', self.q_shape_rate_scaler * torch.ones(self.num_clusters),
                            constraint=dist.constraints.positive)
-        rate = pyro.param('scale_rate', self.q_shape_rate_scaler * torch.ones(self.num_clusters), 
+        rate = pyro.param('scale_rate', self.q_shape_rate_scaler * torch.ones(self.num_clusters),
                           constraint=dist.constraints.positive)
         q_clone_var = dist.Gamma(shape, rate).independent(1)
         q_scale = pyro.sample('scale', q_clone_var)
@@ -111,7 +111,7 @@ class Echidna:
             pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))
             with cluster_plate:
                 pyro.sample('c', dist.Delta(q_c_delta))
-    
+
     def model_mt(self, X, W, pi, z):
         library_size = X.sum(-1, keepdim=True) * 1e-5
         num_timepoints = self.num_timepoints
@@ -152,7 +152,7 @@ class Echidna:
             c_scale = c[t, :, :] * torch.mean(eta,axis=-1).repeat(num_genes,1).T
             rate = c_scale[z[t]] * library_size[t]
             pyro.sample(f"X_{t}", dist.Poisson(rate).to_event(), obs=X[t])
-    
+
     def guide_mt(self, X, W, pi, z):
         num_timepoints = self.num_timepoints
         num_genes = self.num_genes
@@ -187,7 +187,3 @@ class Echidna:
             with cluster_plate:
                 with pyro.plate("timepoints_c", num_timepoints):
                     pyro.sample("c", dist.Delta(q_c))
-
-
-
-

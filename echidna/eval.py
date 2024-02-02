@@ -4,6 +4,7 @@ import torch
 import pyro.distributions as dist
 from echidna.custom_dist import TruncatedNormal
 from scipy.cluster.hierarchy import dendrogram, linkage
+import pandas as pd
 
 # Plot X learned vs. True
 def plot_true_vs_pred(
@@ -58,9 +59,29 @@ def sample_X(X, c, eta, z, library_size):
     return X_learned
 
 def sample_W(pi, eta):
-    return TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
+    W = TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
+    return W.numpy()
 
 def learned_cov(L, scale):
     L = L * torch.sqrt(scale[:, None])
     Sigma = L @ L.T
     return Sigma
+
+def eta_cov_tree(eta, thres):
+    Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+    fig = plt.figure(figsize=(6, 3))
+    dn = dendrogram(Z, color_threshold=thres)
+    return dn
+
+def assign_clones(eta, dn, X):
+    clst = dn.get('leaves_color_list')
+    keys = dn.get('leaves')
+    clst_dict = dict(zip(keys, clst))
+    color_dict = pd.DataFrame(clst)
+    color_dict.columns=['color']
+    color_dict.index=keys
+    hier_colors = [color_dict.loc[int(i)][0] for i in X.obs["leiden"]]
+    X.obs['eta_clones'] = hier_colors
+
+
+
