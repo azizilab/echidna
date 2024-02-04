@@ -73,6 +73,27 @@ def eta_cov_tree(eta, thres):
     dn = dendrogram(Z, color_threshold=thres)
     return dn
 
+def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
+    Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+    distance = Z[:,  2]
+    differences = np.diff(distance)
+    knee_point = np.argmax(differences)
+    threshold = distance[knee_point]
+    print("Knee point: ", knee_point + 1)
+    print("Threshold: ", threshold)
+    dn = dendrogram(Z, color_threshold=threshold)
+    if plot_elbow:
+        plt.figure()
+        plt.plot(range(1, len(differences) + 1), differences, marker='o')
+        plt.axvline(x=knee_point + 1, linestyle='--', label='ELBOW threshold', color='red')
+        plt.legend()
+        plt.xlabel('Merge Step')
+        plt.ylabel('Difference in Distance')
+        plt.title('Elbow Method')
+        plt.show()
+    return dn
+
+
 def assign_clones(eta, dn, X):
     clst = dn.get('leaves_color_list')
     keys = dn.get('leaves')

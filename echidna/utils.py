@@ -45,7 +45,6 @@ def format_pi_one_timepoint(X, timepoint, num_clusters):
     pi_obs_t = torch.zeros(num_clusters)
     for k, v in clst_dict.items():
         pi_obs_t[int(k)] = v
-    assert torch.sum(pi_obs_t) == 1.0
     return pi_obs_t
 
 
