@@ -72,7 +72,7 @@ def sample_X(X, c, eta, z, library_size):
 
 def sample_W(pi, eta):
     W = TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
-    return W.numpy()
+    return W.detach().cpu().numpy()
 
 def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, sample_size=1000):
     c_shape = torch.stack([c_shape] * num_clusters, dim=1)

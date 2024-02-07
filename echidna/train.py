@@ -9,7 +9,7 @@ def train_Echidna(echidna, X, W, pi, z, lr=0.1, n_epochs=1000):
     svi = SVI(echidna.model, echidna.guide, optim, loss=Trace_ELBO())
     losses = []
     pyro.clear_param_store()
-    for j in tqdm.tqdm(range(n_epochs)):
+    for j in tqdm.tqdm(range(n_epochs), position=0, leave=True):
         loss = svi.step(X, W, pi, z)
         losses.append(loss)
     return echidna, losses
