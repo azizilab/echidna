@@ -5,6 +5,7 @@ import pyro.distributions as dist
 from echidna.custom_dist import TruncatedNormal
 from scipy.cluster.hierarchy import dendrogram, linkage
 import pandas as pd
+import pyro
 
 # Plot X learned vs. True
 def plot_true_vs_pred(
@@ -50,10 +51,21 @@ def plot_true_vs_pred(
     plt.title(f"Comprarison of true and learned vals {name} (subsampled)")
     plt.legend()
 
+
+# Function to retrive the learned parameters
+def get_learned_params(echidna, X, W, pi, z):
+    guide_trace = pyro.poutine.trace(echidna.guide).get_trace(X, W, pi, z)
+    trained_model = pyro.poutine.replay(echidna.model, trace=guide_trace)
+    trained_trace = pyro.poutine.trace(trained_model).get_trace(
+            X, W, pi, z
+        )
+    params = trained_trace.nodes
+    return params
+
 def sample_X(X, c, eta, z, library_size):
     mean_scale = torch.mean(eta,axis=1).repeat(X.shape[-1],1).T
     c_scaled = c * mean_scale
-    rate = c_scaled[z[0, :]] * library_size
+    rate = c_scaled[z] * library_size
     X_learned = dist.Poisson(rate).sample()
     X_learned = X_learned.cpu().detach().numpy()
     return X_learned
@@ -61,6 +73,16 @@ def sample_X(X, c, eta, z, library_size):
 def sample_W(pi, eta):
     W = TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
     return W.numpy()
+
+def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, sample_size=1000):
+    c_shape = torch.stack([c_shape] * num_clusters, dim=1)
+    c_rate = torch.stack([c_rate] * num_timepoints, dim=0)
+    c_posterior = dist.Gamma(c_shape, c_rate)
+    return c_posterior.sample([sample_size])[:, target_dim, :]
+
+def sample_Eta(eta_mean, cov, sample_size=1000):
+    eta_posterior = dist.MultivariateNormal(eta_mean, covariance_matrix=cov)
+    return eta_posterior.sample([sample_size])
 
 def learned_cov(L, scale):
     L = L * torch.sqrt(scale[:, None])
@@ -92,7 +114,6 @@ def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
         plt.title('Elbow Method')
         plt.show()
     return dn
-
 
 def assign_clones(eta, dn, X):
     clst = dn.get('leaves_color_list')

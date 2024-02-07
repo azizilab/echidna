@@ -118,8 +118,7 @@ class Echidna:
         num_genes = self.num_genes
         num_clusters = self.num_clusters
 
-        c_shape_param = pyro.param("c_shape", torch.ones(num_timepoints, 1, num_genes).to(self.device),
-                             constraint=constraints.positive)
+        #c_shape_param = pyro.param("c_shape", torch.ones(num_timepoints, 1, num_genes).to(self.device), constraint=constraints.positive)
 
         gene_plate = pyro.plate('G:genes', num_genes, dim=-1, device=self.device)
         cluster_plate = pyro.plate('K:clusters', num_clusters, dim=-2, device=self.device)
@@ -146,7 +145,7 @@ class Echidna:
         with gene_plate:
             with cluster_plate:
                 with pyro.plate("timepoints_c", num_timepoints):
-                    c = pyro.sample(f"c", dist.Gamma(c_shape_param, 1/eta))
+                    c = pyro.sample(f"c", dist.Gamma(1, 1/eta))
 
         for t in range(num_timepoints):
             c_scale = c[t, :, :] * torch.mean(eta,axis=-1).repeat(num_genes,1).T
@@ -160,10 +159,12 @@ class Echidna:
 
         gene_plate = pyro.plate('G:genes', num_genes, dim=-1, device=self.device)
         cluster_plate = pyro.plate('K:clusters', num_clusters, dim=-2, device=self.device)
+
         q_eta_mean = pyro.param('eta_mean',
                           lambda:dist.MultivariateNormal(torch.ones(num_clusters) * 2,
                                                          torch.eye(num_clusters)).sample([num_genes]))
-        q_c = pyro.param('c_map', torch.ones(num_timepoints, num_clusters, num_genes), constraint=constraints.positive)
+        #q_c = pyro.param('c_map', torch.ones(num_timepoints, num_clusters, num_genes), constraint=constraints.positive)
+        q_c_shape = pyro.param('c_shape', torch.ones(num_timepoints, 1, num_genes), constraint=constraints.positive)
 
         shape = pyro.param('scale_shape', self.q_shape_rate_scaler * torch.ones(num_clusters), constraint=constraints.positive)
         rate = pyro.param('scale_rate', self.q_shape_rate_scaler * torch.ones(num_clusters), constraint=constraints.positive)
@@ -182,8 +183,9 @@ class Echidna:
 
         with gene_plate:
             q_eta = pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))
+            q_eta = F.softplus(q_eta).T
 
         with gene_plate:
             with cluster_plate:
                 with pyro.plate("timepoints_c", num_timepoints):
-                    pyro.sample("c", dist.Delta(q_c))
+                    pyro.sample("c", dist.Gamma(q_c_shape, 1/q_eta))

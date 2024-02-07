@@ -100,15 +100,5 @@ def prepare_input(X, W, sample_name, timepoints, n_subsamples, device):
     return X_obs, W_obs, z_obs, pi_obs
 
 
-# Function to retrive the learned parameters
-def get_learned_params(echidna, X, W, pi, z):
-    guide_trace = pyro.poutine.trace(echidna.guide).get_trace(X, W, pi, z)
-    trained_model = pyro.poutine.replay(echidna.model, trace=guide_trace)
-    trained_trace = pyro.poutine.trace(trained_model).get_trace(
-            X, W, pi, z
-        )
-    params = trained_trace.nodes
-    return params
-
 
 
