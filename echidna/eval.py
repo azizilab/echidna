@@ -62,6 +62,7 @@ def get_learned_params(echidna, X, W, pi, z):
     params = trained_trace.nodes
     return params
 
+# Sample X given posterior estimates of c and eta
 def sample_X(X, c, eta, z, library_size):
     mean_scale = torch.mean(eta,axis=1).repeat(X.shape[-1],1).T
     c_scaled = c * mean_scale
@@ -70,31 +71,40 @@ def sample_X(X, c, eta, z, library_size):
     X_learned = X_learned.cpu().detach().numpy()
     return X_learned
 
+# Sample W given posterior estimates of eta
 def sample_W(pi, eta):
     W = TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
     return W.detach().cpu().numpy()
 
-def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, sample_size=1000):
-    c_shape = torch.stack([c_shape] * num_clusters, dim=1)
+
+# Sample C from posterior and selec a target cluster for a given time point
+def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, target_timepoint, sample_size=1000):
+    c_shape = torch.stack([c_shape] * num_clusters, dim=1).squeeze()
     c_rate = torch.stack([c_rate] * num_timepoints, dim=0)
-    c_posterior = dist.Gamma(c_shape, c_rate)
-    return c_posterior.sample([sample_size])[:, target_dim, :]
+    c_posterior = dist.Normal(c_shape, c_rate)
+    c_samples = c_posterior.sample([sample_size])
+    return c_samples[:, target_timepoint, target_dim, :]
 
-def sample_Eta(eta_mean, cov, sample_size=1000):
+
+# Sample eta from posterior select a target cluster
+def sample_Eta(eta_mean, cov, target_dim, sample_size=1000):
     eta_posterior = dist.MultivariateNormal(eta_mean, covariance_matrix=cov)
-    return eta_posterior.sample([sample_size])
+    return eta_posterior.sample([sample_size])[:, target_dim, :]
 
+# return learned covariance across clusters
 def learned_cov(L, scale):
     L = L * torch.sqrt(scale[:, None])
     Sigma = L @ L.T
     return Sigma
 
+# Return clone tree based on learned covariance
 def eta_cov_tree(eta, thres):
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
     fig = plt.figure(figsize=(6, 3))
     dn = dendrogram(Z, color_threshold=thres)
     return dn
 
+# Return clone tree based on learned covariance and compute elbow-optimized cutoff
 def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
     distance = Z[:,  2]
@@ -115,10 +125,10 @@ def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
         plt.show()
     return dn
 
-def assign_clones(eta, dn, X):
+# Assign clones based on the covariance tree for each cell
+def assign_clones(dn, X):
     clst = dn.get('leaves_color_list')
     keys = dn.get('leaves')
-    clst_dict = dict(zip(keys, clst))
     color_dict = pd.DataFrame(clst)
     color_dict.columns=['color']
     color_dict.index=keys
