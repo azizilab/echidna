@@ -81,7 +81,7 @@ def sample_W(pi, eta):
 def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, target_timepoint, sample_size=1000):
     c_shape = torch.stack([c_shape] * num_clusters, dim=1).squeeze()
     c_rate = torch.stack([c_rate] * num_timepoints, dim=0)
-    c_posterior = dist.Normal(c_shape, c_rate)
+    c_posterior = dist.Gamma(c_shape, c_rate)
     c_samples = c_posterior.sample([sample_size])
     return c_samples[:, target_timepoint, target_dim, :]
 
