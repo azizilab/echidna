@@ -82,7 +82,7 @@ class Echidna:
         # Initialize variational parameters
         q_eta_mean = pyro.param('eta_mean', lambda:dist.MultivariateNormal(torch.ones(self.num_clusters) * 2,
                                                                            torch.eye(self.num_clusters)).sample([self.num_genes]))
-        q_c_delta = pyro.param("c_map", torch.ones(self.num_clusters, self.num_genes),
+        q_c_shape = pyro.param("c_shape", torch.ones(self.num_clusters, self.num_genes),
                                constraint=dist.constraints.positive)
 
         # Variational distribution of cluster covariance
@@ -107,10 +107,16 @@ class Echidna:
         q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale[:, None])
 
         # Variational distributions for eta and c
+
         with gene_plate:
-            pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))
+            q_eta = pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))
+            q_eta = F.softplus(q_eta).T
+
+        with gene_plate:
             with cluster_plate:
-                pyro.sample('c', dist.Delta(q_c_delta))
+                pyro.sample("c", dist.Gamma(q_c_shape, 1/q_eta))
+
+        
 
     def model_mt(self, X, W, pi, z):
         library_size = X.sum(-1, keepdim=True) * 1e-5

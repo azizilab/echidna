@@ -64,7 +64,7 @@ def prepare_input(X, W, sample_name, timepoints, n_subsamples, device):
         condition = sample_name + "_" + timepoints[0] + "_" + "count"
         W = W[condition]
         W_obs = torch.from_numpy(W.values).to(torch.float32).to(device)
-        z_obs_series = X.obs['pheno_louvain'].values
+        z_obs_series = X.obs['leiden'].values.astype(int)
         pi_obs_series = np.unique(z_obs_series, return_counts=True)[1] / len(z_obs_series)
         z_obs = torch.from_numpy(np.array(z_obs_series)).to(torch.int32).to(device)
         pi_obs = torch.from_numpy(pi_obs_series).to(torch.float32).to(device)
