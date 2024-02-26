@@ -23,6 +23,16 @@ class Echidna:
         # initialize the scale of variational correlation
         self.q_corr_init = model_config.q_corr_init
 
+        # prior type for covariance
+        self.cov_prior = model_config.cov_prior
+        self.q_cov_scaler = model_config.q_cov_scaler
+
+        # initial mean of eta
+        self.eta_mean_init = model_config.eta_mean_init
+
+        # constant added to diag to ensure PD
+        self.eps = model_config.eps
+
         # set Echidna mode
         if mode == 'MT':
             self.model = poutine.scale(self.model_mt, scale=self.log_prob_scaler)
@@ -56,7 +66,8 @@ class Echidna:
 
         # Sample eta
         with gene_plate:
-          eta = pyro.sample("eta", dist.MultivariateNormal(torch.ones(self.num_clusters) * 2, scale_tril=cholesky_cov))
+          eta = pyro.sample("eta", dist.MultivariateNormal(torch.ones(self.num_clusters) * self.eta_mean_init, 
+                                                           scale_tril=cholesky_cov))
           eta = F.softplus(eta).T
 
 
@@ -80,7 +91,7 @@ class Echidna:
         cluster_plate = pyro.plate('K:clusters', self.num_clusters, dim=-2, device=self.device)
 
         # Initialize variational parameters
-        q_eta_mean = pyro.param('eta_mean', lambda:dist.MultivariateNormal(torch.ones(self.num_clusters) * 2,
+        q_eta_mean = pyro.param('eta_mean', lambda:dist.MultivariateNormal(torch.ones(self.num_clusters) * self.eta_mean_init,
                                                                            torch.eye(self.num_clusters)).sample([self.num_genes]))
         q_c_shape = pyro.param("c_shape", torch.ones(self.num_clusters, self.num_genes),
                                constraint=dist.constraints.positive)
@@ -98,9 +109,15 @@ class Echidna:
         # Variational distribution for off-diagonal
         corr_dim = self.num_clusters * (self.num_clusters - 1) // 2
         corr_loc = pyro.param("corr_loc", torch.zeros(corr_dim))
-        corr_scale = pyro.param("corr_scale", torch.ones(corr_dim) * self.q_corr_init,
+        if self.cov_prior == 'diag':
+            corr_scale = pyro.param("corr_scale", torch.ones(corr_dim) * self.q_corr_init,
                                 constraint=dist.constraints.positive)
-        corr_cov = torch.diag(corr_scale)
+            corr_cov = torch.diag(corr_scale)
+        elif self.cov_prior == 'mvn':
+            corr_cov = pyro.param('corr_scale', self.q_cov_scaler * torch.eye(corr_dim) + self.eps * torch.eye(corr_dim), 
+                                  constraint=dist.constraints.positive_definite)
+        else:
+            raise AttributeError("Prior type not supported. Options are diag and mvn.")
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
@@ -138,7 +155,7 @@ class Echidna:
         assert cholesky_cov.shape == (num_clusters, num_clusters)
         # Sample eta
         with gene_plate:
-            eta = pyro.sample('eta', dist.MultivariateNormal(2 * torch.ones(num_clusters), scale_tril=cholesky_cov))
+            eta = pyro.sample('eta', dist.MultivariateNormal(self.eta_mean_init * torch.ones(num_clusters), scale_tril=cholesky_cov))
             eta = F.softplus(eta).T
 
         # Sample W per time point
@@ -167,9 +184,8 @@ class Echidna:
         cluster_plate = pyro.plate('K:clusters', num_clusters, dim=-2, device=self.device)
 
         q_eta_mean = pyro.param('eta_mean',
-                          lambda:dist.MultivariateNormal(torch.ones(num_clusters) * 2,
+                          lambda:dist.MultivariateNormal(torch.ones(num_clusters) * self.eta_mean_init,
                                                          torch.eye(num_clusters)).sample([num_genes]))
-        #q_c = pyro.param('c_map', torch.ones(num_timepoints, num_clusters, num_genes), constraint=constraints.positive)
         q_c_shape = pyro.param('c_shape', torch.ones(num_timepoints, 1, num_genes), constraint=constraints.positive)
 
         shape = pyro.param('scale_shape', self.q_shape_rate_scaler * torch.ones(num_clusters), constraint=constraints.positive)
@@ -179,9 +195,15 @@ class Echidna:
 
         corr_dim = num_clusters * (num_clusters - 1) // 2
         corr_loc = pyro.param("corr_loc", torch.zeros(corr_dim))
-        corr_scale = pyro.param("corr_scale", torch.ones(corr_dim) * self.q_corr_init,
+        if self.cov_prior == 'diag':
+            corr_scale = pyro.param("corr_scale", torch.ones(corr_dim) * self.q_corr_init,
                           constraint=dist.constraints.positive)
-        corr_cov = torch.diag(corr_scale)
+            corr_cov = torch.diag(corr_scale)
+        elif self.cov_prior == 'mvn':
+            corr_cov = pyro.param('corr_scale', self.q_cov_scaler * torch.eye(corr_dim) + self.eps * torch.eye(corr_dim), 
+                                  constraint=dist.constraints.positive_definite)
+        else:
+            raise AttributeError("Prior type not supported. Options are diag and mvn.")
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)

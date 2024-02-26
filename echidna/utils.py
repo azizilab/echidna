@@ -14,6 +14,14 @@ class ModelConfig:
     q_shape_rate_scaler: float = 10.0
     # initialize the scale of variational correlation
     q_corr_init: float = 0.01
+    # Covariance prior type
+    cov_prior: str = 'diag'
+    # scaler for the covariance of variational correlation
+    q_cov_scaler: float = 0.01
+    # initial mean of eta
+    eta_mean_init: float = 2.0
+    # constant add to diag to ensure PD
+    eps: float = 5e-3
 
 # Load scRNA, isolate tumor, recluster and filter out small clusters
 def read_X(path, tumor_only=True, leiden_res=0.5, thres=20):
