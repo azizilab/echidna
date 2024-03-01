@@ -13,9 +13,9 @@ def train_Echidna(echidna, X, W, pi, z, X_val, W_val, pi_val, z_val, lr=0.1, n_e
     pyro.clear_param_store()
     for j in tqdm.tqdm(range(n_epochs), position=0, leave=True):
         loss = svi.step(X, W, pi, z)
-        losses.append(loss)
+        losses.append(loss/len(X[0]))
 
         with torch.no_grad():
             val_loss = Trace_ELBO().loss(echidna.model, echidna.guide, X_val, W_val, pi_val, z_val)
-            val_losses.append(val_loss)
+            val_losses.append(val_loss/len(X_val[0]))
     return echidna, losses, val_losses
