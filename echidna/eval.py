@@ -89,7 +89,8 @@ def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, target_t
 # Sample eta from posterior select a target cluster
 def sample_Eta(eta_mean, cov, target_dim, sample_size=1000):
     eta_posterior = dist.MultivariateNormal(eta_mean, covariance_matrix=cov)
-    return eta_posterior.sample([sample_size])[:, target_dim, :]
+    samples = eta_posterior.sample([sample_size])
+    return samples[:, :, target_dim]
 
 # return learned covariance across clusters
 def learned_cov(L, scale):
