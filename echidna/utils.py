@@ -10,12 +10,12 @@ class ModelConfig:
     num_cells: int = 500
     num_timepoints: int = 2
     num_clusters: int = 10
+    # concentration parameter of LKJ. <1.0 more diag
+    lkj_concentration: float = 1.0
     # scaler for the shape and rate parameters of covariance diag for variational inference
     q_shape_rate_scaler: float = 10.0
     # initialize the scale of variational correlation
     q_corr_init: float = 0.01
-    # Covariance prior type
-    cov_prior: str = 'diag'
     # scaler for the covariance of variational correlation
     q_cov_scaler: float = 0.01
     # initial mean of eta
@@ -69,7 +69,8 @@ def prepare_input(X, W, sample_name, timepoints, n_subsamples, device):
     # format single-timestep input
     if len(timepoints) == 1:
         X_obs = torch.from_numpy(X.layers['counts']).to(device)
-        condition = sample_name + "_" + timepoints[0] + "_" + "count"
+        # for scDNA tumor 2 do not pass in sample_name
+        condition = sample_name + "_" + timepoints[0] + "_" + "count" if sample_name else '0'
         W = W[condition]
         W_obs = torch.from_numpy(W.values).to(torch.float32).to(device)
         z_obs_series = X.obs['leiden'].values.astype(int)
