@@ -31,9 +31,6 @@ class Echidna:
         # initial mean of eta
         self.eta_mean_init = model_config.eta_mean_init
 
-        # constant added to diag to ensure PD
-        self.eps = model_config.eps
-
         # set Echidna mode
         if mode == 'MT':
             self.model = poutine.scale(self.model_mt, scale=self.log_prob_scaler)

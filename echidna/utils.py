@@ -55,7 +55,6 @@ def format_pi_one_timepoint(X, timepoint, num_clusters):
         pi_obs_t[int(k)] = v
     return pi_obs_t
 
-
 # prepare input for echidna
 def prepare_input(X, W, sample_name, timepoints, n_subsamples, device):
     torch.set_default_dtype(torch.float32)

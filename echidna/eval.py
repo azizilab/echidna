@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import torch
 import pyro.distributions as dist
 from echidna.custom_dist import TruncatedNormal
-from scipy.cluster.hierarchy import dendrogram, linkage
+from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
 import pandas as pd
 import pyro
 
@@ -137,4 +137,31 @@ def assign_clones(dn, X):
     X.obs['eta_clones'] = hier_colors
 
 
+def iterative_adaptive_clustering(eta, n_iterations, adaptive_cutoff):
+    all_clusters = []
+    for i in range(n_iterations):
+        print(f"Iteration {i + 1}")
+        data = torch.cov(eta).cpu().detach().numpy()
 
+        # cluster
+        Z = linkage(data, method='ward', metric='euclidean')
+
+        # get current assignments
+        base_cutoff = adaptive_cutoff[i]
+        clusters = fcluster(Z, base_cutoff, criterion='distance')
+        print(f"Iteration {i + 1} - Cluster labels:", clusters)
+
+        # remove most obvious clusters
+        cluster_to_remove = np.bincount(clusters).argmin()
+        print(f"Iteration {i + 1} - Removing cluster {cluster_to_remove}")
+
+        # Remove the points
+        data = data[clusters != cluster_to_remove]
+
+        all_clusters.append(clusters)
+        
+        # If no data left, break the loop
+        if len(data) == 0:
+            print("No data left to cluster.")
+            break
+    return all_clusters
