@@ -1,5 +1,6 @@
 import torch
 from pyro import distributions as dist
+from torch.distributions import constraints
 
 class TruncatedNormal(dist.Distribution):
 
@@ -110,3 +111,36 @@ class TruncatedNormal(dist.Distribution):
                 return (1 - sign) * loc + sign * self.base_dist.icdf(
                     self._clamp_probs((1 - u) * self._tail_prob_at_low_both() + u * self._tail_prob_at_high_both())
                 )
+
+
+class TruncatedGamma(dist.TorchDistribution):
+    arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
+    support = constraints.positive
+
+    def __init__(self, concentration, rate, lower_bound, upper_bound, validate_args=None):
+        self.concentration = concentration
+        self.rate = rate
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self.base_dist = dist.Gamma(concentration, rate)
+        super().__init__(self.base_dist.batch_shape, self.base_dist.event_shape, validate_args=validate_args)
+
+    def sample(self, sample_shape=torch.Size()):
+        samples = self.base_dist.sample(sample_shape)
+        while (samples < self.lower_bound).any() or (samples > self.upper_bound).any():
+            samples = torch.where(
+                (samples < self.lower_bound) | (samples > self.upper_bound),
+                self.base_dist.sample(sample_shape),
+                samples
+            )
+        return samples
+
+    def log_prob(self, value):
+        log_prob = self.base_dist.log_prob(value)
+        log_prob = torch.where(
+            (value < self.lower_bound) | (value > self.upper_bound),
+            torch.tensor(float('-inf')),
+            log_prob
+        )
+        normalization_constant = (self.base_dist.cdf(self.upper_bound) - self.base_dist.cdf(self.lower_bound)).log()
+        return log_prob - normalization_constant

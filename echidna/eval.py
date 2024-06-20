@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import torch
 import pyro.distributions as dist
 from echidna.custom_dist import TruncatedNormal
-from scipy.cluster.hierarchy import dendrogram, linkage, fcluster
+from scipy.cluster.hierarchy import dendrogram, linkage, cophenet
+from scipy.spatial.distance import squareform
 import pandas as pd
 import pyro
 
@@ -137,31 +138,33 @@ def assign_clones(dn, X):
     X.obs['eta_clones'] = hier_colors
 
 
-def iterative_adaptive_clustering(eta, n_iterations, adaptive_cutoff):
-    all_clusters = []
-    for i in range(n_iterations):
-        print(f"Iteration {i + 1}")
-        data = torch.cov(eta).cpu().detach().numpy()
+def mahalanobis_distance_matrix(data, cov_matrix):
+    cov_inv = torch.inverse(cov_matrix)
+    data_np = data.cpu().detach().numpy()
+    cov_inv_np = cov_inv.cpu().detach().numpy()
+    
+    num_samples = data_np.shape[0]
+    distance_matrix = np.zeros((num_samples, num_samples))
+    
+    for i in range(num_samples):
+        for j in range(num_samples):
+            delta = data_np[:, i] - data_np[:, j]
+            distance_matrix[i, j] = np.sqrt(np.dot(np.dot(delta, cov_inv_np), delta.T))
+    
+    return distance_matrix
 
-        # cluster
-        Z = linkage(data, method='ward', metric='euclidean')
+def eta_cov_tree_cophenetic_thresholding(mat, method='average', frac=0.7, dist_matrix=False):
+    if dist_matrix:
+        Z = linkage(squareform(mat), method)
+    else:
+        Z = linkage(torch.cov(mat).cpu().detach().numpy(), method)
+    # Compute the cophenetic distances
+    coph_distances = cophenet(Z)
 
-        # get current assignments
-        base_cutoff = adaptive_cutoff[i]
-        clusters = fcluster(Z, base_cutoff, criterion='distance')
-        print(f"Iteration {i + 1} - Cluster labels:", clusters)
-
-        # remove most obvious clusters
-        cluster_to_remove = np.bincount(clusters).argmin()
-        print(f"Iteration {i + 1} - Removing cluster {cluster_to_remove}")
-
-        # Remove the points
-        data = data[clusters != cluster_to_remove]
-
-        all_clusters.append(clusters)
-        
-        # If no data left, break the loop
-        if len(data) == 0:
-            print("No data left to cluster.")
-            break
-    return all_clusters
+    max_coph_distance = np.max(coph_distances)
+    threshold = frac * max_coph_distance
+    
+    # Plot the dendrogram with the threshold
+    dn = dendrogram(Z, color_threshold=threshold)
+    
+    return dn
