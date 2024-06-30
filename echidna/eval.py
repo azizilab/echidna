@@ -6,7 +6,6 @@ from echidna.custom_dist import TruncatedNormal
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet
 from scipy.spatial.distance import squareform
 import pandas as pd
-import pyro
 
 # Plot X learned vs. True
 def plot_true_vs_pred(
@@ -52,16 +51,6 @@ def plot_true_vs_pred(
     plt.title(f"Comprarison of true and learned vals {name} (subsampled)")
     plt.legend()
 
-
-# Function to retrive the learned parameters
-def get_learned_params(echidna, X, W, pi, z):
-    guide_trace = pyro.poutine.trace(echidna.guide).get_trace(X, W, pi, z)
-    trained_model = pyro.poutine.replay(echidna.model, trace=guide_trace)
-    trained_trace = pyro.poutine.trace(trained_model).get_trace(
-            X, W, pi, z
-        )
-    params = trained_trace.nodes
-    return params
 
 # Sample X given posterior estimates of c and eta
 def sample_X(X, c, eta, z, library_size):
