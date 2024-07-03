@@ -1,70 +1,44 @@
+# eval.py
+
 import numpy as np
+import pandas as pd
+from typing import Tuple
+import logging
+
 import matplotlib.pyplot as plt
-import torch
-import pyro.distributions as dist
-from echidna.custom_dist import TruncatedNormal
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet
 from scipy.spatial.distance import squareform
-import pandas as pd
+
 import pyro
+import pyro.distributions as dist
 
-# Plot X learned vs. True
-def plot_true_vs_pred(
-    X_learned: np.ndarray,
-    X_true: np.ndarray,
-    name: str = "",
-    log_scale: bool = False,
-    save: bool = True,
-    color: str = None,
-):
-    """
-    Plots lambda vs X.
-    """
-    # Subsample for plotting
-    num = min(len(X_learned.flatten()), 200000)
-    indx = np.random.choice(np.arange(len(X_learned.flatten())), num, replace=False)
-    X_learned = X_learned.flatten()[indx]
-    X_true = X_true.flatten()[indx]
+import torch
 
-    if log_scale:
-        X_learned = np.log(X_learned + 1)
-        X_true = np.log(X_true + 1)
-        lbl_pstfix = "[log(x + 1)] "
-    else:
-        lbl_pstfix = ""
+from echidna.tools.custom_dist import TruncatedNormal
+from echidna.tools.model import Echidna
+from echidna.tools.housekeeping import get_learned_params, load_model
 
-    x = X_true
-    y = X_learned
+import warnings
+from anndata._core.views import ImplicitModificationWarning
 
-    maximum = max(np.max(x), np.max(y))
-    minimum = min(np.min(x), np.min(y))
-    # scater plot
-    plt.scatter(x, y, alpha=0.1)
-    plt.plot([minimum, maximum], [minimum, maximum], "r", label="x=y")
-    plt.xlabel("True " + lbl_pstfix)
-    plt.ylabel("Learned" + lbl_pstfix)
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    format="%(asctime)s | %(levelname)s : %(message)s",
+    level=logging.INFO,
+)
 
-    # Fit a line through x and y
-    color = 'g--' if color is None else color + '--'
-    z = np.polyfit(x, y, 1)
-    p = np.poly1d(z)
-    plt.plot(x, p(x), color, label="Fit line")
-    plt.title(f"Comprarison of true and learned vals {name} (subsampled)")
-    plt.legend()
+def predictive_log_likelihood(echidna: Echidna, data: Tuple):
+    guide_trace = pyro.poutine.trace(echidna.guide).get_trace(*data)
+    model_trace = pyro.poutine.trace(
+        pyro.poutine.replay(echidna.model, trace=guide_trace)
+    ).get_trace(*data)
+    log_prob = (model_trace.log_prob_sum() - guide_trace.log_prob_sum()).item()
+    return log_prob
 
-
-# Function to retrive the learned parameters
-def get_learned_params(echidna, X, W, pi, z):
-    guide_trace = pyro.poutine.trace(echidna.guide).get_trace(X, W, pi, z)
-    trained_model = pyro.poutine.replay(echidna.model, trace=guide_trace)
-    trained_trace = pyro.poutine.trace(trained_model).get_trace(
-            X, W, pi, z
-        )
-    params = trained_trace.nodes
-    return params
-
-# Sample X given posterior estimates of c and eta
 def sample_X(X, c, eta, z, library_size):
+    """
+    Sample X given posterior estimates of c and eta
+    """
     mean_scale = torch.mean(eta,axis=1).repeat(X.shape[-1],1).T
     c_scaled = c * mean_scale
     rate = c_scaled[z] * library_size
@@ -72,23 +46,34 @@ def sample_X(X, c, eta, z, library_size):
     X_learned = X_learned.cpu().detach().numpy()
     return X_learned
 
-# Sample W given posterior estimates of eta
 def sample_W(pi, eta):
+    """
+    Sample W given posterior estimates of eta
+    """
     W = TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
     return W.detach().cpu().numpy()
 
-
-# Sample C from posterior and selec a target cluster for a given time point
-def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, target_timepoint, sample_size=1000):
+def sample_c(
+    c_shape,
+    c_rate,
+    num_clusters,
+    num_timepoints,
+    target_dim,
+    target_timepoint,
+    sample_size=1000
+) -> torch.Tensor:
+    """
+    Sample C from posterior and selec a target cluster for a
+    given time point
+    """
     c_shape = torch.stack([c_shape] * num_clusters, dim=1).squeeze()
     c_rate = torch.stack([c_rate] * num_timepoints, dim=0)
     c_posterior = dist.Gamma(c_shape, c_rate)
     c_samples = c_posterior.sample([sample_size])
     return c_samples[:, target_timepoint, target_dim, :]
 
-
 # Sample eta from posterior select a target cluster
-def sample_Eta(eta_mean, cov, target_dim, sample_size=1000):
+def sample_eta(eta_mean, cov, target_dim, sample_size=1000):
     eta_posterior = dist.MultivariateNormal(eta_mean, covariance_matrix=cov)
     samples = eta_posterior.sample([sample_size])
     return samples[:, :, target_dim]
@@ -96,26 +81,28 @@ def sample_Eta(eta_mean, cov, target_dim, sample_size=1000):
 # return learned covariance across clusters
 def learned_cov(L, scale):
     L = L * torch.sqrt(scale[:, None])
-    Sigma = L @ L.T
-    return Sigma
+    sigma = L @ L.T
+    return sigma
 
 # Return clone tree based on learned covariance
-def eta_cov_tree(eta, thres):
+def eta_cov_tree(eta, thres, plot_dendrogram: bool=False):
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
     fig = plt.figure(figsize=(6, 3))
-    dn = dendrogram(Z, color_threshold=thres)
+    dn = dendrogram(Z, color_threshold=thres, no_plot=not plot_dendrogram)
     return dn
 
 # Return clone tree based on learned covariance and compute elbow-optimized cutoff
-def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
+def eta_cov_tree_elbow_thresholding(
+    eta,
+    plot_dendrogram: bool=False,
+    plot_elbow: bool=False
+):
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
     distance = Z[:,  2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
     threshold = distance[knee_point]
-    print("Knee point: ", knee_point + 1)
-    print("Threshold: ", threshold)
-    dn = dendrogram(Z, color_threshold=threshold)
+
     if plot_elbow:
         plt.figure()
         plt.plot(range(1, len(differences) + 1), differences, marker='o')
@@ -125,7 +112,13 @@ def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
         plt.ylabel('Difference in Distance')
         plt.title('Elbow Method')
         plt.show()
-    return dn
+    elif plot_dendrogram:
+        dendrogram(Z, color_threshold=threshold, no_plot=False)
+        plt.title('Echidna Clusters Hierarchy')
+    else: 
+        logger.info(f"Dendrogram knee point: {knee_point + 1}")
+        logger.info(f"Dendrogram threshold: {threshold:.4f}")
+        return dendrogram(Z, color_threshold=threshold, no_plot=True)
 
 # Assign clones based on the covariance tree for each cell
 def assign_clones(dn, X):
@@ -134,9 +127,14 @@ def assign_clones(dn, X):
     color_dict = pd.DataFrame(clst)
     color_dict.columns=['color']
     color_dict.index=keys
-    hier_colors = [color_dict.loc[int(i)][0] for i in X.obs["leiden"]]
-    X.obs['eta_clones'] = hier_colors
-
+    if "echidna" not in X.uns:
+        raise ValueError("No echidna model has been saved for this AnnData object.")
+    cluster_label = X.uns["echidna"]["config"]["clusters"]
+    hier_colors = [color_dict.loc[int(i)][0] for i in X.obs[cluster_label]]
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
+        X.obs["echidna_clones"] = hier_colors
+        X.obs["echidna_clones"] = X.obs["echidna_clones"].astype("category")
 
 def mahalanobis_distance_matrix(data, cov_matrix):
     cov_inv = torch.inverse(cov_matrix)
@@ -168,3 +166,11 @@ def eta_cov_tree_cophenetic_thresholding(mat, method='average', frac=0.7, dist_m
     dn = dendrogram(Z, color_threshold=threshold)
     
     return dn
+
+def echidna_clones(adata):
+    echidna = load_model(adata)
+    dn = eta_cov_tree_elbow_thresholding(echidna.eta_ground_truth)
+    assign_clones(dn, adata)
+    logger.info(
+        "Added `.obs['echidna_clones']`: the learned clones from eta."
+    )
