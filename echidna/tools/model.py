@@ -1,3 +1,5 @@
+# echidna.tools.model.py
+
 from typing import Union
 
 import pyro
@@ -36,7 +38,6 @@ class Echidna:
     def model_st(self, X, W, pi, z):
         library_size = X.sum(-1, keepdim=True) * 1e-5
 
-
         gene_plate = pyro.plate('G:genes', self.config.num_genes, dim=-1, device=self.config.device)
         cluster_plate = pyro.plate('K:clusters', self.config.num_clusters, dim=-2, device=self.config.device)
 
@@ -44,8 +45,7 @@ class Echidna:
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(self.config.num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
-        cholesky_cov = cholesky_corr * torch.sqrt(scale[:, None])
-
+        cholesky_cov = cholesky_corr * torch.sqrt(scale[:, None]) # INVERSE GAMMA OPTION ?
 
         # Sample eta
         with gene_plate:
@@ -60,6 +60,7 @@ class Echidna:
 
         # Sample W
         with gene_plate:
+            pi = pyro.deterministic("pi", pi)
             W = pyro.sample('W', TruncatedNormal(pi @ eta, 0.05, lower=0.), obs=W)
 
         # Sample C
@@ -69,7 +70,8 @@ class Echidna:
 
         # Sample X
         c_scale = c * torch.mean(eta,axis=1).repeat(self.config.num_genes,1).T
-        rate = c_scale[z.to(torch.int64)] * library_size
+        z_tmp = pyro.deterministic("z", z.to(torch.int64))
+        rate = c_scale[z_tmp] * library_size
         X = pyro.sample('X', dist.Poisson(rate).to_event(), obs=X)
         return X, W 
 
@@ -101,7 +103,7 @@ class Echidna:
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
-        q_cholesky_cov = q_cholesky_corr * torch.sqrt(1/q_scale[:, None])
+        q_cholesky_cov = q_cholesky_corr * torch.sqrt(1/q_scale[:, None]) # INVERSE GAMMA OPTION ?
 
         with gene_plate:
             q_eta = pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))
@@ -125,7 +127,7 @@ class Echidna:
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
-        cholesky_cov = cholesky_corr * torch.sqrt(scale[:, None])
+        cholesky_cov = cholesky_corr * torch.sqrt(scale[:, None]) # INVERSE GAMMA
         assert cholesky_cov.shape == (num_clusters, num_clusters)
         # Sample eta
         with gene_plate:
@@ -133,8 +135,9 @@ class Echidna:
             eta = F.softplus(eta).T
 
         # Sample W per time point
-        with pyro.plate(f"genes", num_genes):
+        with gene_plate:
             with pyro.plate("timepoints_w", num_timepoints):
+                pi = pyro.deterministic("pi", pi)
                 mu_w = pi @ eta
                 W = pyro.sample(f"W", TruncatedNormal(mu_w, 0.05, lower=0.), obs=W)
 
@@ -146,7 +149,8 @@ class Echidna:
 
         for t in range(num_timepoints):
             c_scale = c[t, :, :] * torch.mean(eta,axis=-1).repeat(num_genes,1).T
-            rate = c_scale[z[t].to(torch.int64)] * library_size[t]
+            z_tmp = pyro.deterministic(f"z_{t}", z[t].to(torch.int64))
+            rate = c_scale[z_tmp[t]] * library_size[t]
             pyro.sample(f"X_{t}", dist.Poisson(rate).to_event(), obs=X[t])
 
     def guide_mt(self, X, W, pi, z):
@@ -175,7 +179,8 @@ class Echidna:
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
-        q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale[:, None])
+        q_scale = q_scale[:, None] if not self.config.inverse_gamma else 1/q_scale[:, None] # CHECK WITH MING ? BEFORE CONTINUING
+        q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale) # INVERSE GAMMA OPTION ?
 
         with gene_plate:
             q_eta = pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))

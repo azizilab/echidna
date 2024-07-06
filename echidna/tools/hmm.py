@@ -1,4 +1,4 @@
-# hmm.py
+# echinda.tools.hmm.py
 
 import logging
 
@@ -9,12 +9,9 @@ from scipy.stats import ttest_ind
 from hmmlearn import hmm
 
 from echidna.tools.housekeeping import load_model
+from echidna.utils import get_logger
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s : %(message)s",
-    level=logging.INFO,
-)
+logger = get_logger(__name__)
 
 def infer_cnv(adata, cluster: str):
     echidna = load_model(adata)

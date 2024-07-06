@@ -1,7 +1,49 @@
+# echidna.plot.ppc.py
+
 import matplotlib.pyplot as plt
 import numpy as np
 
-def ppc(adata):
+import torch
+from pyro import render_model
+
+from echidna.tools.housekeeping import load_model
+from echidna.plot.utils import is_notebook
+
+def plate_model(adata, filename: str=None):
+    """Display plate model
+    Parameters
+    ----------
+    adata : sc.AnnData
+        The annotated data matrix
+    filename : str
+        Saves figure to the given path.
+    """
+    echidna = load_model(adata)
+    if echidna.config._is_multi:
+        X_rand = torch.randint(low=0, high=40, size=(echidna.config.num_timepoints, 10, echidna.config.num_genes), dtype=torch.float32)
+        W_rand = torch.rand((echidna.config.num_timepoints, echidna.config.num_genes), dtype=torch.float32)
+        z_rand = torch.randint(low=0, high=echidna.config.num_clusters, size=(echidna.config.num_timepoints, 10,), dtype=torch.int32)
+        pi_rand = torch.rand((echidna.config.num_timepoints, echidna.config.num_clusters), dtype=torch.float32)
+    else:
+        X_rand = torch.randint(low=0, high=40, size=(10, echidna.config.num_genes), dtype=torch.float32)
+        W_rand = torch.rand((echidna.config.num_genes), dtype=torch.float32)
+        z_rand = torch.randint(low=0, high=echidna.config.num_clusters, size=(10,), dtype=torch.int32)
+        pi_rand = torch.rand((echidna.config.num_clusters), dtype=torch.float32)
+    
+    data=(X_rand, W_rand, pi_rand, z_rand)
+    fig = render_model(
+        echidna.model, 
+        model_args=data, 
+        render_params=True, 
+        render_distributions=True,
+        render_deterministic=True,
+        filename=filename,
+    )
+    if is_notebook():
+        display(fig)
+
+def ppc(adata, variable):
+    # Given a vairable, view its ppc
     pass
 
 def plot_true_vs_pred(

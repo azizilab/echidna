@@ -1,3 +1,5 @@
+# echidna.tools.custom_dist.py
+
 import torch
 from pyro import distributions as dist
 from torch.distributions import constraints

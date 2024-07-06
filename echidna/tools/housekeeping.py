@@ -1,4 +1,5 @@
-# housekeeping.py
+# echidna.tools.housekeeping.py
+
 from datetime import datetime
 import logging
 import os
@@ -16,13 +17,13 @@ import pyro.distributions as dist
 from echidna.tools.custom_dist import TruncatedNormal
 from echidna.tools.utils import EchidnaConfig
 from echidna.tools.model import Echidna
-from echidna.utils import ECHIDNA_GLOBALS, create_echidna_uns_key
-
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s : %(message)s",
-    level=logging.INFO,
+from echidna.utils import (
+    ECHIDNA_GLOBALS,
+    create_echidna_uns_key,
+    get_logger,
 )
+
+logger = get_logger(__name__)
 
 def set_posteriors(echidna, data):
     """
@@ -31,6 +32,7 @@ def set_posteriors(echidna, data):
     echidna.eta_ground_truth = eta_posterior_estimates(echidna, data)
     echidna.c_ground_truth = c_posterior_estimates(eta=echidna.eta_ground_truth, mt=echidna.config._is_multi)
     echidna.cov_ground_truth = cov_posterior_estimate(inverse_gamma=echidna.config.inverse_gamma)
+    echidna.library_size = data[0].sum(-1, keepdim=True) * 1e-5
     return echidna
 
 def get_learned_params(echidna, data):
@@ -48,45 +50,49 @@ def eta_posterior_estimates(echidna, data, num_samples=1000):
     Posterior mean of eta
     """
     X, _, pi, _ = data
-    eta = torch.zeros([pi.shape[-1], X.shape[-1]]).cpu()
+    eta = torch.zeros([pi.shape[-1], X.shape[-1]])
     for _ in range(num_samples):
         params = get_learned_params(echidna, data)
-        eta += F.softplus(params['eta']['value'].T).detach().cpu()
+        eta += F.softplus(params['eta']['value'].T)
     eta /= num_samples
+    with torch.no_grad():
+        eta = eta.to(echidna.config.device)
     return eta
 
 def c_posterior_estimates(eta, mt=True):
     """
     Posterior mean of c. Takes in posterior mean of eta
     """
+    c = None
     if mt:
-        c_shape = pyro.param('c_shape').detach().cpu().squeeze(1)
-        c = c_shape.unsqueeze(1) * eta.unsqueeze(0)
-        return c
+        c_shape = pyro.param('c_shape').squeeze(1)
+        with torch.no_grad():
+            c = c_shape.unsqueeze(1) * eta.unsqueeze(0)
     else:
-        c_shape = pyro.param('c_shape').detach().cpu()
-        c = c_shape * eta
-        return c
+        c_shape = pyro.param('c_shape')
+        with torch.no_grad():
+            c = c_shape * eta
+    return c
 
 def cov_posterior_estimate(inverse_gamma=False):
     """
     Posterior mean of covariance
     """
-    corr_loc = pyro.param("corr_loc").detach().cpu()
-    corr_scale = pyro.param("corr_scale").detach().cpu()
+    corr_loc = pyro.param("corr_loc")
+    corr_scale = pyro.param("corr_scale")
     corr_cov = torch.diag(corr_scale)
     corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
     transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
     chol_samples = transformed_dist.sample((10000,))
-    L_shape = pyro.param('scale_shape').detach().cpu()
-    L_rate = pyro.param('scale_rate').detach().cpu()
+    L_shape = pyro.param('scale_shape')
+    L_rate = pyro.param('scale_rate')
     L = L_shape/L_rate
     if not inverse_gamma:
-        cov = chol_samples.mean(0) * np.sqrt(L[:, None])
+        cov = chol_samples.mean(0) * torch.sqrt(L[:, None])
     else:
-        cov = chol_samples.mean(0) * np.sqrt(1/L[:, None])
-    cov = cov@cov.T
-    cov = cov.numpy()
+        cov = chol_samples.mean(0) * torch.sqrt(1/L[:, None])
+    with torch.no_grad():
+        cov = cov@cov.T
     return cov
 
 def save_model(adata, model, overwrite=False):

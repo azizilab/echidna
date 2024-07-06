@@ -1,4 +1,5 @@
-# utils.py
+# echidna.tools.utils.py
+
 import logging
 import dataclasses
 from dataclasses import dataclass
@@ -8,11 +9,9 @@ import scanpy as sc
 
 from torch.cuda import is_available
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s : %(message)s",
-    level=logging.INFO,
-)
+from echidna.utils import get_logger, ECHIDNA_GLOBALS
+
+logger = get_logger(__name__)
 
 @dataclass(unsafe_hash=True)
 class EchidnaConfig:
@@ -24,9 +23,7 @@ class EchidnaConfig:
     
     timepoint_label: str="timepoint"
     _is_multi: bool=None
-    
-    timepoint_order: tuple=("pre", "on", "on1", "on2", "post", "post1", "post1_pre2", "post1_on2", "post2")
-    
+        
     ## TRAINING PARAMETERS
     seed: int=42
     # max steps of SVI
@@ -66,8 +63,8 @@ class EchidnaConfig:
 
 class EarlyStopping:
     """
-    Taken from Decipher. See https://github.com/azizilab/decipher/blob/main/decipher/tools/utils.py
-    ASK ACHILLE AND JOY FOR PERMISSION
+    Borrowed from Decipher with author permission:
+    Achille Nazaret, https://github.com/azizilab/decipher/blob/main/decipher/tools/utils.py
     
     Keeps track of when the loss does not improve after a given patience.
     Useful to stop training when the validation loss does not improve anymore.
@@ -171,8 +168,8 @@ def pre_process(xad: sc.AnnData
         
         return xad
 
-def _custom_sort(items, config):
-    order = config.timepoint_order
+def _custom_sort(items):
+    order = ECHIDNA_GLOBALS["timepoint_order"]
     order_dict = {item: index for index, item in enumerate(order)}
     default_order = len(order)
 
