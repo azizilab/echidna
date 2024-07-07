@@ -45,7 +45,8 @@ class Echidna:
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(self.config.num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
-        cholesky_cov = cholesky_corr * torch.sqrt(scale[:, None]) # INVERSE GAMMA OPTION ?
+        scale = scale[:, None] if not self.config.inverse_gamma else 1/scale[:, None] # CHECK WITH MING
+        cholesky_cov = cholesky_corr * torch.sqrt(scale) # INVERSE GAMMA OPTION
 
         # Sample eta
         with gene_plate:
@@ -103,7 +104,8 @@ class Echidna:
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
-        q_cholesky_cov = q_cholesky_corr * torch.sqrt(1/q_scale[:, None]) # INVERSE GAMMA OPTION ?
+        q_scale = q_scale[:, None] if not self.config.inverse_gamma else 1/q_scale[:, None] # CHECK WITH MING
+        q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale) # INVERSE GAMMA OPTION
 
         with gene_plate:
             q_eta = pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))
@@ -127,8 +129,9 @@ class Echidna:
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
-        cholesky_cov = cholesky_corr * torch.sqrt(scale[:, None]) # INVERSE GAMMA
-        assert cholesky_cov.shape == (num_clusters, num_clusters)
+        scale = scale[:, None] if not self.config.inverse_gamma else 1/scale[:, None] # CHECK WITH MING
+        cholesky_cov = cholesky_corr * torch.sqrt(scale) # INVERSE GAMMA
+        assert cholesky_cov.shape == (num_clusters, num_clusters) 
         # Sample eta
         with gene_plate:
             eta = pyro.sample('eta', dist.MultivariateNormal(self.config.eta_mean_init * torch.ones(num_clusters), scale_tril=cholesky_cov))
@@ -179,8 +182,8 @@ class Echidna:
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
-        q_scale = q_scale[:, None] if not self.config.inverse_gamma else 1/q_scale[:, None] # CHECK WITH MING ? BEFORE CONTINUING
-        q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale) # INVERSE GAMMA OPTION ?
+        q_scale = q_scale[:, None] if not self.config.inverse_gamma else 1/q_scale[:, None] # CHECK WITH MING  
+        q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale) # INVERSE GAMMA OPTION 
 
         with gene_plate:
             q_eta = pyro.sample('eta', dist.MultivariateNormal(q_eta_mean, scale_tril=q_cholesky_cov))

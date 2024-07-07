@@ -20,6 +20,7 @@ def infer_cnv(adata, cluster: str):
     
     values, draw_lines, genes, chrs_list = bin_by_bands(corrected_eta, "CNV")
     states = get_states(np.asarray(vals),n_components=5,transition=1)
+    del echidna
 
 def bin_by_bands(df, column):
     """

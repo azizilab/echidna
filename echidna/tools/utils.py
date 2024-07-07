@@ -1,15 +1,19 @@
 # echidna.tools.utils.py
 
-import logging
+import logging, os, shutil
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 import scanpy as sc
 
 from torch.cuda import is_available
 
-from echidna.utils import get_logger, ECHIDNA_GLOBALS
+from echidna.utils import (
+    get_logger,
+    ECHIDNA_GLOBALS,
+    create_echidna_uns_key,
+)
 
 logger = get_logger(__name__)
 
@@ -22,12 +26,13 @@ class EchidnaConfig:
     num_clusters: int = None
     
     timepoint_label: str="timepoint"
+    counts_layer: str="counts"
     _is_multi: bool=None
-        
+
     ## TRAINING PARAMETERS
     seed: int=42
     # max steps of SVI
-    n_steps: int=1000
+    n_steps: int=10000
     # learning rate for Adam optimizer
     learning_rate: float=.1
     # % of training set to use for validation
@@ -60,6 +65,20 @@ class EchidnaConfig:
     def to_dict(self):
         res = dataclasses.asdict(self)
         return res
+    
+    @classmethod
+    def from_dict(cls, config_dict):
+        config = cls()
+        for key, value in config_dict.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+        return config
+    
+    def __getstate__(self):
+        return self.__dict__
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
 class EarlyStopping:
     """
@@ -107,76 +126,27 @@ class EarlyStopping:
         """Returns True if the stopping condition has been met."""
         return self.early_stop
 
-def pre_process(xad: sc.AnnData
-                 , num_genes: int = None
-                 , target_sum: float = None
-                 , exclude_highly_expressed: bool = False
-                 , n_comps: int = 15
-                 , phenograph_k: int = 60
-                 , n_neighbors: int = 15
-                ) -> sc.AnnData:
-        """
-        xad: sc.AnnData
-        num_genes -- number of highly expressed genes to use. Pass None if using all, default 2**13 (8192)
-        target_sum -- normalize to this total, default median library size (ie None for scanpy)
-        exclude_highly_expressed -- whether to exclude highly expressed genes (default: False)
-        n_comps -- number of principal components to use for PCA (default: 15)
-        phenograph_k --  Number of nearest neighbors to use in first step of graph construction (default: 60)
-        n_neighbors -- num nearest neighbors for umap (default: 15)
-        """
-        
-        xad.X = xad.X.astype("float32")
-        
-        # highly variable genes
-        if num_genes is not None:
-            x_log = sc.pp.log1p(xad, copy=True, base=10)
-            sc.pp.highly_variable_genes(x_log, n_top_genes=num_genes)
-            xad = xad[:, x_log.var["highly_variable"]]
-        
-        if "counts" not in xad.layers:
-            xad.layers["counts"] = xad.X.copy()
-        sc.pp.calculate_qc_metrics(xad, inplace=True, layer="counts")
-        
-        # store the current "total_counts" under original_total_counts, which will not automatically be updated
-        # by scanpy in subsequent filtering steps
-        xad.obs["original_total_counts"] = xad.obs["total_counts"].copy()
-
-        # log10 original library size
-        xad.obs["log10_original_total_counts"] = log10(xad.obs["original_total_counts"]).copy()
-
-        # Normalize by median library size
-        if target_sum is None:
-            target_sum = median(xad.obs["original_total_counts"])
-        sc.pp.normalize_total(xad, target_sum=target_sum, exclude_highly_expressed=exclude_highly_expressed)
-
-        #log transform + 1 and updates adata.X
-        sc.pp.log1p(xad)
-        
-        logger.info("Performing PCA...")
-        sc.tl.pca(xad, n_comps=n_comps)
-        logger.info("Calculating phenograph clusters...")
-        sc.external.tl.phenograph(xad, clustering_algo="louvain", k=phenograph_k, seed=1)
-        
-        logger.info("Performing nearest neighbors search and calculating UMAP...")
-        sc.pp.neighbors(xad, random_state=1, n_neighbors=n_neighbors)
-        sc.tl.umap(xad, random_state=1)
-        
-        logger.info("Done processing.")
-        
-        for sparse_mtx in xad.obsp:
-            xad.obsp[sparse_mtx] = csr_matrix(xad.obsp[sparse_mtx])
-        
-        return xad
-
-def _custom_sort(items):
-    order = ECHIDNA_GLOBALS["timepoint_order"]
-    order_dict = {item: index for index, item in enumerate(order)}
-    default_order = len(order)
+def set_sort_order(adata, order):
+    create_echidna_uns_key(adata)
+    adata.uns["echidna"]["timepoint_order"] = {
+        item: index for index, item in enumerate(order)
+    }
+    
+def _custom_sort(items, order_dict):
+    order_dict = {item: int(index) for item, index in order_dict.items()}
+    default_order = len(order_dict)
 
     items_list = items.columns if isinstance(items, pd.DataFrame) else items
-    sorted_list = sorted(items_list, key=lambda x: next((order_dict[sub] for sub in order if sub in x), default_order))
+    sorted_list = sorted(items_list, key=lambda x: next((order_dict[sub] for sub in order_dict.keys() if sub in x), default_order))
     
     if isinstance(items, pd.DataFrame):
         return items.reindex(columns=sorted_list, fill_value=None)
     
     return sorted_list
+
+def reset_echinda_memory():
+    save_folder = ECHIDNA_GLOBALS["save_folder"]
+    
+    if os.path.exists(save_folder) and os.path.isdir(save_folder):
+        shutil.rmtree(save_folder)
+    logger.info("Cleared Echidna model saves.")

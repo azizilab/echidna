@@ -59,6 +59,7 @@ def dendrogram(adata, elbow: bool=False, filepath: str=None):
             plot_dendrogram=True,
         )
     if filepath: save_figure(fig, filepath)
+    del echidna
 
 def echidna(
     adata,

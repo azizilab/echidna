@@ -19,111 +19,157 @@ from echidna.tools.custom_dist import TruncatedNormal
 from echidna.tools.model import Echidna
 from echidna.tools.housekeeping import get_learned_params, load_model
 from echidna.tools.utils import _custom_sort
+from echidna.tools.data import create_z_pi
 from echidna.utils import get_logger
 
 logger = get_logger(__name__)
 
-def sample(adata, variable):
-    if variable not in ("X", "W", "c", "eta"):
-        raise ValueError("`variable` must be one of or a list of (\"X\", \"W\", \"c\", \"eta\")")
+def sample(adata, variable, **kwargs):
+    if variable not in ("X", "W", "c", "eta", "cov"):
+        raise ValueError(
+            "`variable` must be one of or a list of "
+            "(\"X\", \"W\", \"c\", \"eta\", \"cov\")"
+        )
         
     sample_funcs = {
         "X" : sample_X,
         "W" : sample_W,
         "c" : sample_c,
         "eta" : sample_eta,
-        # "cov" : 
+        "cov" : sample_cov, 
     }
     
-    return sample_funcs[variable](adata)
+    return sample_funcs[variable](adata, **kwargs)
 
-def sample_X(adata, num_cells=None):
+def sample_X(adata, num_cells=None, return_z=False):
     """Sample X given posterior estimates of c and eta
     """
-    # echidna = load_model(adata)
-    timepoints = _custom_sort(np.unique(adata.obs[echidna.config.timepoint_label]))
-    # cells_filter = adata.obs["echidna_split"] != "discard"
-    num_cells = echidna.config.num_cells if num_cells is None else num_cells
+    config = adata.uns["echidna"]["config"]
+
+    echidna = load_model(adata)
+    
+    # num_cells cleaning and checks
+    num_cells = int(config["num_cells"]) if num_cells is None else num_cells
     num_cells = num_cells[0] if isinstance(num_cells, (tuple, list, torch.Tensor, np.ndarray)) else num_cells
     if not isinstance(num_cells, int): raise ValueError("`num_cells` must be of type int.")
     
-    rng = np.random.default_rng(echidna.config.seed)
+    # Check num_cells is within bounds
+    discard_filter = adata.obs["echidna_split"] != "discard"
+    arbitrary_tp_filter = adata.obs[config["timepoint_label"]] == adata.obs[config["timepoint_label"]][0]
+    max_cells = adata.obs[discard_filter & arbitrary_tp_filter].shape[0]
+    if num_cells > max_cells:
+        raise ValueError(f"`num_cells` must be less than {max_cells}.")
+        
+    rng = np.random.default_rng(int(config["seed"]))
     
     z = []
     library_size = []
+    timepoints = np.unique(adata.obs[config["timepoint_label"]])
+    if "timepoint_order" in adata.uns["echidna"]: 
+        timepoints = _custom_sort(timepoints, adata.uns["echidna"]["timepoint_order"])
+    if "total_counts" not in adata.obs:
+        adata.obs["total_counts"] = adata.layers[config["counts_layer"]].sum(-1)
+        logger.info(
+            "Added `.obs['total_counts']` : Library size, sum of counts"
+            " across genes for each cell."
+        )
     for i, t in enumerate(timepoints):
-        timepoint_filter = adata.obs[echidna.config.timepoint_label]==t
+        timepoint_filter = adata.obs[config["timepoint_label"]]==t
         adata_tmp = adata[timepoint_filter, adata.var["echidna_matched_genes"]]
         
         cell_index = rng.choice(range(adata_tmp.shape[0]), num_cells, replace=False)
         z.append(
             torch.tensor(adata_tmp.obs.loc[
-                adata_tmp.obs.index[cell_index], echidna.config.clusters
+                adata_tmp.obs.index[cell_index], config["clusters"]
             ].values, dtype=torch.int64)
         )
 
         library_size.append(torch.tensor(adata_tmp.obs["total_counts"][cell_index].values, dtype=torch.float32))
-    library_size = torch.stack(library_size)
+    library_size = torch.stack(library_size) * 1e-5
     z = torch.stack(z)
-    print(library_size.shape)
     c = echidna.c_ground_truth
+    if not bool(config["_is_multi"]): c = c.unsqueeze(0)
     eta = echidna.eta_ground_truth
 
-    mean_scale = torch.mean(eta, axis=1).repeat(echidna.config.num_genes,1).T
-    c_scaled = c * mean_scale
+    mean_scale = torch.mean(eta, axis=-1).repeat(int(config["num_genes"]),1).T
+    c_scaled = c * mean_scale.unsqueeze(0)
 
-    rate = c_scaled[z] * library_size
-    X = dist.Poisson(rate).sample()
-    X_sample.append(X.squeeze())
-    
-    X_sample = torch.stack(X_sample, dim=0)
-    return X_sample.squeeze()
+    X_sample = []
+    for t in range(int(config["num_timepoints"])):
+        rate = c_scaled[t, z[t], :] * library_size.T[:,t].view(-1,1)
+        X = dist.Poisson(rate).sample()
+        X_sample.append(X)
+    X_sample = torch.stack(X_sample, dim=0).squeeze()
+    del echidna
+    if return_z:
+        return X_sample, z
+    return X_sample
 
 def sample_W(adata, num_samples=(1,)):
     """Sample W given posterior estimates of eta
     """
+    config = adata.uns["echidna"]["config"]
     echidna = load_model(adata)
     
-    z = adata.obs[echidna.config.clusters].values
-    pi = np.unique(z, return_counts=True)[1] / len(z)
-    pi = torch.from_numpy(pi).to(torch.float32).to(echidna.config.device)
+    pi, _ = create_z_pi(adata, config)
     
     W = TruncatedNormal(pi @ echidna.eta_ground_truth, 0.05, lower=0).sample(num_samples)
     W = W.squeeze()
+    del echidna
     return W
 
 def sample_c(adata, num_samples=(1,)) -> torch.Tensor:
     """Sample C from posterior and selec a target cluster for
     a given time point.
     """
+    config = adata.uns["echidna"]["config"]
     echidna = load_model(adata)
     
     eta = dist.MultivariateNormal(
-        echidna.eta_ground_truth.expand(echidna.config.num_clusters, -1).T,
+        echidna.eta_ground_truth.expand(config["num_clusters"], -1).T,
         covariance_matrix=echidna.cov_ground_truth
     ).sample()
     c_sample = dist.Gamma(pyro.param("c_shape"), 1/echidna.eta_ground_truth)
     c_sample = c_sample.sample(num_samples).squeeze()
+    del echidna
     return c_sample
 
 def sample_eta(adata, num_samples=(1,)):
     """Sample eta from posterior
     """
+    config = adata.uns["echidna"]["config"]
     echidna = load_model(adata)
     
     eta_posterior = dist.MultivariateNormal(
-        echidna.eta_ground_truth.expand(echidna.config.num_clusters, -1).T,
+        echidna.eta_ground_truth.expand(int(config["num_clusters"]), -1).T,
         covariance_matrix=echidna.cov_ground_truth
     )
     eta_samples = eta_posterior.sample(num_samples).squeeze()
+    del echidna
     return eta_samples
 
-def learned_cov(L, scale):
+def sample_cov(adata, num_samples=(1,)):
     """Return learned covariance across clusters.
     """
-    L = L * torch.sqrt(scale[:, None])
-    sigma = L @ L.T
-    return sigma
+    echidna = load_model(adata)
+    
+    corr_loc = pyro.param("corr_loc")
+    corr_scale = pyro.param("corr_scale")
+    corr_cov = torch.diag(corr_scale)
+    corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
+    transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
+    chol_samples = transformed_dist.sample(num_samples).squeeze()
+    L_shape = pyro.param('scale_shape')
+    L_rate = pyro.param('scale_rate')
+    L = L_shape/L_rate
+    
+    scale = L[:, None] if not echidna.config.inverse_gamma else 1/L[:, None]
+    cov = chol_samples * torch.sqrt(scale)
+    cov = cov@cov.T
+    
+    del echidna
+    
+    return cov
 
 def mahalanobis_distance_matrix(data, cov_matrix):
     cov_inv = torch.inverse(cov_matrix)
@@ -155,7 +201,7 @@ def eta_cov_tree_elbow_thresholding(
     plot_elbow : bool
     """
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
-    distance = Z[:,  2]
+    distance = Z[:, 2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
     threshold = distance[knee_point]
@@ -252,3 +298,4 @@ def echidna_clones(adata, method="elbow", threshold=0.):
     logger.info(
         "Added `.obs['echidna_clones']`: the learned clones from eta."
     )
+    del echidna

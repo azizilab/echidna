@@ -2,7 +2,7 @@
 
 from datetime import datetime
 import logging
-import os
+import os, gc
 
 import numpy as np
 import pandas as pd
@@ -45,18 +45,19 @@ def get_learned_params(echidna, data):
     params = trained_trace.nodes
     return params
 
-def eta_posterior_estimates(echidna, data, num_samples=1000):
+def eta_posterior_estimates(echidna, data, num_samples=(int(1e3),)):
     """
     Posterior mean of eta
     """
+    if isinstance(num_samples, tuple):
+        num_samples = num_samples[0]
     X, _, pi, _ = data
     eta = torch.zeros([pi.shape[-1], X.shape[-1]])
     for _ in range(num_samples):
         params = get_learned_params(echidna, data)
         eta += F.softplus(params['eta']['value'].T)
     eta /= num_samples
-    with torch.no_grad():
-        eta = eta.to(echidna.config.device)
+    eta = eta.to(echidna.config.device)
     return eta
 
 def c_posterior_estimates(eta, mt=True):
@@ -66,15 +67,13 @@ def c_posterior_estimates(eta, mt=True):
     c = None
     if mt:
         c_shape = pyro.param('c_shape').squeeze(1)
-        with torch.no_grad():
-            c = c_shape.unsqueeze(1) * eta.unsqueeze(0)
+        c = c_shape.unsqueeze(1) * eta.unsqueeze(0)
     else:
         c_shape = pyro.param('c_shape')
-        with torch.no_grad():
-            c = c_shape * eta
+        c = c_shape * eta
     return c
 
-def cov_posterior_estimate(inverse_gamma=False):
+def cov_posterior_estimate(inverse_gamma=False, num_samples=(int(1e3),)):
     """
     Posterior mean of covariance
     """
@@ -83,36 +82,38 @@ def cov_posterior_estimate(inverse_gamma=False):
     corr_cov = torch.diag(corr_scale)
     corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
     transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
-    chol_samples = transformed_dist.sample((10000,))
+    chol_samples = transformed_dist.sample(num_samples)
     L_shape = pyro.param('scale_shape')
     L_rate = pyro.param('scale_rate')
     L = L_shape/L_rate
-    if not inverse_gamma:
-        cov = chol_samples.mean(0) * torch.sqrt(L[:, None])
-    else:
-        cov = chol_samples.mean(0) * torch.sqrt(1/L[:, None])
-    with torch.no_grad():
-        cov = cov@cov.T
+    
+    scale = L[:, None] if not inverse_gamma else 1/L[:, None]
+    cov = chol_samples.mean(0) * torch.sqrt(scale)
+    cov = cov@cov.T
+    
     return cov
 
-def save_model(adata, model, overwrite=False):
+def save_model(adata, model, overwrite=False, simulation=False):
     """
     Modified from Decipher with author permission:
     Achille Nazaret, https://github.com/azizilab/decipher/blob/main/decipher/tools/_decipher/data.py
     """
     create_echidna_uns_key(adata)
+    
+    run_id_key = "run_id_sim" if simulation else "run_id"
+    run_id_key_hist = "run_id_sim_history" if simulation else "run_id_history"
+    
+    if run_id_key_hist not in adata.uns["echidna"]:
+        adata.uns["echidna"][run_id_key_hist] = []
 
-    if "run_id_history" not in adata.uns["echidna"]:
-        adata.uns["echidna"]["run_id_history"] = []
-
-    if "run_id" not in adata.uns["echidna"] or not overwrite:
-        adata.uns["echidna"]["run_id"] = datetime.now().strftime("%Y%m%d-%H%M%S")
-        adata.uns["echidna"]["run_id_history"].append(adata.uns["echidna"]["run_id"])
-        logging.info(f"Saving echidna model with run_id {adata.uns['echidna']['run_id']}.")
+    if run_id_key not in adata.uns["echidna"] or not overwrite:
+        adata.uns["echidna"][run_id_key] = datetime.now().strftime("%Y%m%d-%H%M%S")
+        adata.uns["echidna"][run_id_key_hist].append(adata.uns["echidna"][run_id_key])
+        logging.info(f"Saving echidna model with run_id {adata.uns['echidna'][run_id_key]}.")
     else:
         logging.info("Overwriting existing echidna model.")
 
-    model_run_id = adata.uns["echidna"]["run_id"]
+    model_run_id = adata.uns["echidna"][run_id_key]
     save_folder = ECHIDNA_GLOBALS["save_folder"]
     full_path = os.path.join(save_folder, model_run_id)
     os.makedirs(full_path, exist_ok=True)
@@ -125,7 +126,7 @@ def save_model(adata, model, overwrite=False):
     
     adata.uns["echidna"]["config"] = model.config.to_dict()
 
-def load_model(adata):
+def load_model(adata, simulation=False):
     """
     Modified from Decipher with author permission:
     Achille Nazaret, https://github.com/azizilab/decipher/blob/main/decipher/tools/_decipher/data.py
@@ -145,18 +146,25 @@ def load_model(adata):
         The echidna model.
     """
     create_echidna_uns_key(adata)
-    if "run_id" not in adata.uns["echidna"]:
-        raise ValueError("No echidna model has been saved for this AnnData object.")
+    
+    run_id_key = "run_id_sim" if simulation else "run_id"
+    run_id_key_hist = "run_id_sim_history" if simulation else "run_id_history"
+    
+    if run_id_key not in adata.uns["echidna"]:
+        sim = "" if not simulation else "simulation "
+        raise ValueError(f"No echidna {sim}model has been saved for this AnnData object.")
 
     model_config = EchidnaConfig(**adata.uns["echidna"]["config"])
     model = Echidna(model_config)
-    model_run_id = adata.uns["echidna"]["run_id"]
+    model_run_id = adata.uns["echidna"][run_id_key]
     save_folder = ECHIDNA_GLOBALS["save_folder"]
     full_path = os.path.join(save_folder, model_run_id)
     
     model = torch.load(os.path.join(full_path, "echidna_model.pt"))
     
     pyro.clear_param_store()
+    gc.collect()
+    torch.cuda.empty_cache()
     param_store = pyro.get_param_store()
     param_dict = torch.load(os.path.join(full_path, "echidna_model_param_store.pt"))
     for name, param in param_dict.items():
@@ -164,5 +172,8 @@ def load_model(adata):
             param_store[name] = param.to(model.config.device)
         else:
             pyro.param(name, param.to(model.config.device))
-    
+
+    torch.set_default_dtype(torch.float32)
+    torch.set_default_device(model.config.device)
+
     return model
