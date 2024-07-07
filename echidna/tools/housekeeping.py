@@ -105,13 +105,13 @@ def save_model(adata, model, overwrite=False, simulation=False):
     
     if run_id_key_hist not in adata.uns["echidna"]:
         adata.uns["echidna"][run_id_key_hist] = []
-
+    sim = "" if not simulation else "simulation "
     if run_id_key not in adata.uns["echidna"] or not overwrite:
         adata.uns["echidna"][run_id_key] = datetime.now().strftime("%Y%m%d-%H%M%S")
         adata.uns["echidna"][run_id_key_hist].append(adata.uns["echidna"][run_id_key])
-        logging.info(f"Saving echidna model with run_id {adata.uns['echidna'][run_id_key]}.")
+        logging.info(f"Saving echidna {sim}model with run_id {adata.uns['echidna'][run_id_key]}.")
     else:
-        logging.info("Overwriting existing echidna model.")
+        logging.info(f"Overwriting existing echidna {sim}model.")
 
     model_run_id = adata.uns["echidna"][run_id_key]
     save_folder = ECHIDNA_GLOBALS["save_folder"]
