@@ -6,19 +6,23 @@ from echidna.custom_dist import TruncatedNormal
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet
 from scipy.spatial.distance import squareform
 import pandas as pd
+from scipy.cluster.hierarchy import linkage, leaves_list
+from scipy.stats import linregress
+import seaborn as sns
 
-# Plot X learned vs. True
-def plot_true_vs_pred(
+def pred_posterior_check(
     X_learned: np.ndarray,
     X_true: np.ndarray,
     name: str = "",
     log_scale: bool = False,
+    R_val=True,
+    equal_line=True,
     save: bool = True,
     color: str = None,
+    title: str = "Predictive Posterior Check",
+    xlabname: str = "True ",
+    ylabname: str = "Simulated "
 ):
-    """
-    Plots lambda vs X.
-    """
     # Subsample for plotting
     num = min(len(X_learned.flatten()), 200000)
     indx = np.random.choice(np.arange(len(X_learned.flatten())), num, replace=False)
@@ -35,22 +39,89 @@ def plot_true_vs_pred(
     x = X_true
     y = X_learned
 
+    # Perform linear regression
+    if R_val:
+        slope, intercept, r_value, p_value, std_err = linregress(x, y)
+        r2 = r_value**2
+        y_pred = slope * x + intercept
+
     maximum = max(np.max(x), np.max(y))
     minimum = min(np.min(x), np.min(y))
-    # scater plot
-    plt.scatter(x, y, alpha=0.1)
-    plt.plot([minimum, maximum], [minimum, maximum], "r", label="x=y")
-    plt.xlabel("True " + lbl_pstfix)
-    plt.ylabel("Learned" + lbl_pstfix)
 
-    # Fit a line through x and y
-    color = 'g--' if color is None else color + '--'
-    z = np.polyfit(x, y, 1)
-    p = np.poly1d(z)
-    plt.plot(x, p(x), color, label="Fit line")
-    plt.title(f"Comprarison of true and learned vals {name} (subsampled)")
+    # Scatter plot
+    plt.scatter(x, y, alpha=0.1, label='Data points', color=color)
+    if equal_line:
+        plt.plot([minimum, maximum], [minimum, maximum], "r", label="x=y")
+    
+    # Plot the regression line
+    if R_val:
+        plt.plot(x, y_pred, label="Regression line", color='blue')
+
+    plt.xlabel(xlabname + lbl_pstfix)
+    plt.ylabel(ylabname + lbl_pstfix)
+    
+    # Annotate the plot with the R^2 value
+    if R_val:
+        plt.text(0.05, 0.95, f'$R^2$ = {r2:.2f}', ha='left', va='center', transform=plt.gca().transAxes, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
+    
     plt.legend()
+    plt.title(title + " " + name)
+    
+    if save:
+        plt.savefig(f'{name}_posterior_predictive_check.png')
+    
+    plt.show()
 
+# Compare refitted cov with a fitted cov
+def compare_covariance_matrix(data1, data2):
+    n = data1.shape[-1]
+    df1 = pd.DataFrame(data1, columns=[f"Clst {i}" for i in range(n)], index=[f"Clst {i}" for i in range(n)])
+    df2 = pd.DataFrame(data2, columns=[f"Clst {i}" for i in range(n)], index=[f"Clst {i}" for i in range(n)])
+
+    # Perform hierarchical clustering on the first dataset
+    linkage_rows = linkage(df1, method='average', metric='euclidean')
+    linkage_cols = linkage(df1.T, method='average', metric='euclidean')
+
+    # Get the order of the rows and columns
+    row_order = leaves_list(linkage_rows)
+    col_order = leaves_list(linkage_cols)
+
+    # Reorder both datasets
+    df1_ordered = df1.iloc[row_order, col_order]
+    df2_ordered = df2.iloc[row_order, col_order]
+
+    # Create a grid for the plots
+    fig = plt.figure(figsize=(20, 10))
+
+    # Define the axes for the first plot
+    gs = fig.add_gridspec(3, 4, width_ratios=[0.05, 1, 0.05, 1], height_ratios=[0.2, 1, 0.05], wspace=0.1, hspace=0.1)
+    ax_col_dendro1 = fig.add_subplot(gs[0, 1])
+    ax_heatmap1 = fig.add_subplot(gs[1, 1])
+
+    # Define the axes for the second plot
+    ax_col_dendro2 = fig.add_subplot(gs[0, 3])
+    ax_heatmap2 = fig.add_subplot(gs[1, 3])
+
+    # Plot dendrogram for columns of the first dataset
+    dendro_col1 = dendrogram(linkage_cols, ax=ax_col_dendro1, orientation='top', no_labels=True, color_threshold=0)
+    ax_col_dendro1.set_xticks([])
+    ax_col_dendro1.set_yticks([])
+    ax_col_dendro1.set_title("Refitted Covariance")
+
+    # Plot heatmap for the first dataset
+    sns.heatmap(df1_ordered, ax=ax_heatmap1, cbar=False, xticklabels=False, yticklabels=True)
+
+    # Plot dendrogram for columns of the second dataset
+    dendro_col2 = dendrogram(linkage_cols, ax=ax_col_dendro2, orientation='top', no_labels=True, color_threshold=0)
+    ax_col_dendro2.set_xticks([])
+    ax_col_dendro2.set_yticks([])
+    ax_col_dendro2.set_title("Original Covariance")
+
+    # Plot heatmap for the second dataset
+    sns.heatmap(df2_ordered, ax=ax_heatmap2, cbar=False, xticklabels=False, yticklabels=True)
+
+    plt.tight_layout()
+    plt.show()
 
 # Sample X given posterior estimates of c and eta
 def sample_X(X, c, eta, z, library_size):
@@ -65,7 +136,6 @@ def sample_X(X, c, eta, z, library_size):
 def sample_W(pi, eta):
     W = TruncatedNormal(pi @ eta, 0.05, lower=0).sample()
     return W.detach().cpu().numpy()
-
 
 # Sample C from posterior and selec a target cluster for a given time point
 def sample_C(c_shape, c_rate, num_clusters, num_timepoints, target_dim, target_timepoint, sample_size=1000):
@@ -91,6 +161,12 @@ def learned_cov(L, scale):
 # Return clone tree based on learned covariance
 def eta_cov_tree(eta, thres):
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+    fig = plt.figure(figsize=(6, 3))
+    dn = dendrogram(Z, color_threshold=thres)
+    return dn
+
+def cov_tree(cov, thres):
+    Z = linkage(cov, 'average')
     fig = plt.figure(figsize=(6, 3))
     dn = dendrogram(Z, color_threshold=thres)
     return dn
