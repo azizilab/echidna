@@ -27,7 +27,7 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     file_save_path = adata.uns["echidna"]["save_data"]["infer_cnv"]
     band_means_states = pd.read_csv(file_save_path)
     
-    band_means_states["chrom"] = band_means_states["band"].str.extract(r'^(chr[0-9XY]+)_')[0]
+    band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
     chrom_counts = sort_chromosomes(
         band_means_states.groupby("chrom")["band"].nunique()
     ).cumsum()
@@ -65,7 +65,7 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         if filename: fig.savefig(filename, format="png")
 
 def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, filename=None):
-    '''Plot the CNV states along the genome.
+    """Plot the CNV states along the genome.
 
     Parameters
     ----------
@@ -81,23 +81,23 @@ def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, fi
             Title to label the plot
         filename : str (optional)
             Name of the file to save the plot
-    '''
+    """
     df = pd.DataFrame({
-        'x': np.arange(len(vals)),
-        'vals': vals,
-        'states': states,
+        "x": np.arange(len(vals)),
+        "vals": vals,
+        "states": states,
     })
     
-    color_map = {'neut': 'grey', 'amp': 'red', 'del': 'blue'}
-    df['color'] = df['states'].map(color_map)
+    color_map = {"neut": "grey", "amp": "red", "del": "blue"}
+    df["color"] = df["states"].map(color_map)
     
     if ax is None:
         fig, ax = plt.subplots(figsize=(25, 5))
     
     for i, row in df.iterrows():
-        ax.axvline(x=row['x'], color=row['color'], linestyle='-', alpha=0.3, linewidth=1)
+        ax.axvline(x=row["x"], color=row["color"], linestyle="-", alpha=0.3, linewidth=1)
     
-    sns.scatterplot(x='x', y='vals', hue='states', palette=color_map, data=df, legend=False, s=80, ax=ax)
+    sns.scatterplot(x="x", y="vals", hue="states", palette=color_map, data=df, legend=False, s=80, ax=ax)
     
     # Set the x-axis ticks and labels
     ticks = [(chrom_coords[i-1] + chrom_coords[i])/2 if i != 0 else chrom_coords[i]/2 for i in range(len(chrom_coords))]
@@ -106,12 +106,12 @@ def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, fi
     
     # Draw vertical lines at each chromosome boundary
     for x in chrom_coords:
-        ax.axvline(x=x, color='k', linestyle='--', linewidth=1.2)
+        ax.axvline(x=x, color="k", linestyle="--", linewidth=1.2)
         
-    ax.set_xlabel('Bands')
-    ax.set_ylabel('CN')
+    ax.set_xlabel("Bands")
+    ax.set_ylabel("CN")
     
-    ax.grid(axis='x')
+    ax.grid(axis="x")
     
     if title:
         ax.set_title(title)
