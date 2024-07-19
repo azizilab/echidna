@@ -1,0 +1,17 @@
+# environment.yaml
+
+name: echidna
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.8
+  - scanpy>=1.10
+  - python-igraph
+  - leidenalg
+  - pyro-ppl>=1.9.1
+  - pandas
+  - seaborn
+  - hmmlearn
+  - pip
+  - pip:
+      - graphviz 

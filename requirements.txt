@@ -1,5 +1,6 @@
-scanpy==1.9.3
-pandas==1.3.5
-seaborn==0.12.2
-hmmlearn==0.3.2
-pyro-ppl==1.9.1
+scanpy>=1.10
+pandas
+seaborn
+hmmlearn
+pyro-ppl>=1.9.1
+graphviz

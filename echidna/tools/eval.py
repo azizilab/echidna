@@ -54,8 +54,11 @@ def sample_X(adata, num_cells=None, return_z=False):
     if not isinstance(num_cells, int): raise ValueError("`num_cells` must be of type int.")
     
     # Check num_cells is within bounds
+    ## Get the number of cells in each timepoint, which should
+    ## be even across TP via the discard filter
     discard_filter = adata.obs["echidna_split"] != "discard"
-    arbitrary_tp_filter = adata.obs[config["timepoint_label"]] == adata.obs[config["timepoint_label"]][0]
+    timepoint_label = config["timepoint_label"]
+    arbitrary_tp_filter = adata.obs.loc[:, timepoint_label] == adata.obs.loc[:, timepoint_label].iloc[0]
     max_cells = adata.obs[discard_filter & arbitrary_tp_filter].shape[0]
     if num_cells > max_cells:
         raise ValueError(f"`num_cells` must be less than {max_cells}.")
@@ -83,8 +86,12 @@ def sample_X(adata, num_cells=None, return_z=False):
                 adata_tmp.obs.index[cell_index], config["clusters"]
             ].values, dtype=torch.int64)
         )
-
-        library_size.append(torch.tensor(adata_tmp.obs["total_counts"][cell_index].values, dtype=torch.float32))
+        library_size.append(
+            torch.tensor(
+                adata_tmp.obs.loc[:, "total_counts"].iloc[cell_index].values,
+                dtype=torch.float32,
+            )
+        )
     library_size = torch.stack(library_size) * 1e-5
     z = torch.stack(z)
     c = echidna.c_ground_truth
@@ -159,8 +166,8 @@ def sample_cov(adata, num_samples=(1,)):
     corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
     transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
     chol_samples = transformed_dist.sample(num_samples).squeeze()
-    L_shape = pyro.param('scale_shape')
-    L_rate = pyro.param('scale_rate')
+    L_shape = pyro.param("scale_shape")
+    L_rate = pyro.param("scale_rate")
     L = L_shape/L_rate
     
     scale = L[:, None] if not echidna.config.inverse_gamma else 1/L[:, None]
@@ -200,7 +207,7 @@ def eta_cov_tree_elbow_thresholding(
     plot_dendrogram : bool
     plot_elbow : bool
     """
-    Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+    Z = linkage(torch.cov(eta).cpu().detach().numpy(), "average")
     distance = Z[:, 2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
@@ -208,17 +215,17 @@ def eta_cov_tree_elbow_thresholding(
 
     if plot_elbow:
         fig, ax = plt.subplots()
-        ax.plot(range(1, len(differences) + 1), differences, marker='o')
-        ax.axvline(x=knee_point + 1, linestyle='--', label='ELBOW threshold', color='red')
+        ax.plot(range(1, len(differences) + 1), differences, marker="o")
+        ax.axvline(x=knee_point + 1, linestyle="--", label="ELBOW threshold", color="red")
         ax.legend()
-        ax.set_xlabel('Merge Step')
-        ax.set_ylabel('Difference in Distance')
-        ax.set_title('Elbow Method')
+        ax.set_xlabel("Merge Step")
+        ax.set_ylabel("Difference in Distance")
+        ax.set_title("Elbow Method")
         return fig
     elif plot_dendrogram:
         fig, ax = plt.subplots()
         dendrogram(Z, color_threshold=threshold, no_plot=False, ax=ax)
-        ax.set_title('Echidna Clusters Hierarchy')
+        ax.set_title("Echidna Clusters Hierarchy")
         return fig
     else: 
         logger.info(f"Dendrogram knee point: {knee_point + 1}")
@@ -227,7 +234,7 @@ def eta_cov_tree_elbow_thresholding(
     
 def eta_cov_tree_cophenetic_thresholding(
     mat, 
-    method='average', 
+    method="average", 
     frac=0.7, 
     dist_matrix=False,
     plot_dendrogram: bool=False,
@@ -254,7 +261,7 @@ def eta_cov_tree(
 ):
     """Return clone tree based on learned covariance.
     """
-    Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+    Z = linkage(torch.cov(eta).cpu().detach().numpy(), "average")
     if not plot_dendrogram:
         return dendrogram(Z, color_threshold=thres, no_plot=True)
     else:
@@ -262,20 +269,39 @@ def eta_cov_tree(
 
 def assign_clones(dn, X):
     """Assign clones based on the covariance tree for each cell.
+
+    Parameters
+    ----------
+    dn : dict
+        A dictionary containing the leaves color list and leaves information.
+    X : sc.AnnData
+        Annotated data matrix.
     """
-    clst = dn.get('leaves_color_list')
-    keys = dn.get('leaves')
-    color_dict = pd.DataFrame(clst)
-    color_dict.columns=['color']
-    color_dict.index=keys
+    # Extract leaves color list and leaves
+    color_dict = dict(zip(
+        dn.get("leaves"), dn.get("leaves_color_list")
+    ))
+
+    # Check for echidna model in AnnData object
     if "echidna" not in X.uns:
-        raise ValueError("No echidna model has been saved for this AnnData object.")
+        raise ValueError(
+            "No echidna model has been saved for this AnnData object."
+        )
+
+    # Get cluster label from echidna model
     cluster_label = X.uns["echidna"]["config"]["clusters"]
-    hier_colors = [color_dict.loc[int(i)][0] for i in X.obs[cluster_label]]
+
+    # Map hierarchical colors to cells
+    hier_colors = [color_dict[int(i)] for i in X.obs[cluster_label]]
+    
+    # Assign hierarchical colors to echidna clones
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
-        X.obs["echidna_clones"] = hier_colors
-        X.obs["echidna_clones"] = X.obs["echidna_clones"].astype("category")
+        X.obs["echidna_clones"] = pd.Series(
+            hier_colors,
+            index=X.obs.index,
+            dtype="category",
+        )
 
 def echidna_clones(adata, method="elbow", threshold=0.):
     echidna = load_model(adata)
