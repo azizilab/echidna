@@ -165,6 +165,14 @@ def eta_cov_tree(eta, thres):
     dn = dendrogram(Z, color_threshold=thres)
     return dn
 
+def eta_corr_tree(eta, thres):
+    eta_corr = torch.corrcoef(eta).cpu().detach().numpy()
+    dist_mat = 1 - eta_corr
+    Z = linkage(dist_mat, 'average')
+    fig = plt.figure(figsize=(6, 3))
+    dn = dendrogram(Z, color_threshold=thres)
+    return dn
+
 def cov_tree(cov, thres):
     Z = linkage(cov, 'average')
     fig = plt.figure(figsize=(6, 3))
@@ -174,6 +182,28 @@ def cov_tree(cov, thres):
 # Return clone tree based on learned covariance and compute elbow-optimized cutoff
 def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
     Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+    distance = Z[:,  2]
+    differences = np.diff(distance)
+    knee_point = np.argmax(differences)
+    threshold = distance[knee_point]
+    print("Knee point: ", knee_point + 1)
+    print("Threshold: ", threshold)
+    dn = dendrogram(Z, color_threshold=threshold)
+    if plot_elbow:
+        plt.figure()
+        plt.plot(range(1, len(differences) + 1), differences, marker='o')
+        plt.axvline(x=knee_point + 1, linestyle='--', label='ELBOW threshold', color='red')
+        plt.legend()
+        plt.xlabel('Merge Step')
+        plt.ylabel('Difference in Distance')
+        plt.title('Elbow Method')
+        plt.show()
+    return dn
+
+def eta_corr_tree_elbow_thresholding(eta, plot_elbow=False):
+    eta_corr = torch.corrcoef(eta).cpu().detach().numpy()
+    dist_mat = 1 - eta_corr
+    Z = linkage(dist_mat, 'average')
     distance = Z[:,  2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
