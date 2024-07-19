@@ -129,23 +129,24 @@ def ppc_cov(adata, learned_params, filename: str=None):
     cov_matrix_simulated = echidna_sim.cov_ground_truth.detach().cpu().numpy()
     cov_matrix_real = echidna.cov_ground_truth.detach().cpu().numpy()
     cov_matrix_diff = cov_matrix_real - cov_matrix_simulated
-
+    
     # Create heatmaps
     plt.figure(figsize=(18, 6))
-
+    
+    vmin, vmax = (-.5, .5)
     # Plot the real covariance matrix
     plt.subplot(1, 3, 1)
-    sns.heatmap(cov_matrix_real, cmap='coolwarm', annot=True, fmt='.2f')
+    sns.heatmap(cov_matrix_real, cmap='coolwarm', annot=True, fmt='.2f', vmin=-vmin, vmax=vmax)
     plt.title('Covariance Matrix (Real)')
 
     # Plot the simulated covariance matrix
     plt.subplot(1, 3, 2)
-    sns.heatmap(cov_matrix_simulated, cmap='coolwarm', annot=True, fmt='.2f')
+    sns.heatmap(cov_matrix_simulated, cmap='coolwarm', annot=True, fmt='.2f', vmin=-vmin, vmax=vmax)
     plt.title('Covariance Matrix (Learned)')
 
     # Plot the difference between the two covariance matrices
     plt.subplot(1, 3, 3)
-    sns.heatmap(cov_matrix_diff, cmap='coolwarm', annot=True, fmt='.2f')
+    sns.heatmap(cov_matrix_diff, cmap='coolwarm', annot=True, fmt='.2f', vmin=-vmin, vmax=vmax)
     plt.title('Difference (Real - Learned)')
     plt.tight_layout()
     

@@ -5,7 +5,7 @@ from .train import echidna_train, simulate
 from .housekeeping import save_model, load_model
 from .eval import echidna_clones, sample
 from .data import pre_process
-from .hmm import infer_cnv
+from .hmm import infer_cnv, genes_to_bands
 
 __all__ = [
     "EchidnaConfig",

@@ -48,17 +48,19 @@ def activate_plot_settings():
     It is recommended if the figures are to be edited in Adobe Illustrator.
     """
     if is_notebook():        
-        sc.settings.set_figure_params(dpi_save=400, vector_friendly=True, fontsize=12)
+        sc.settings.set_figure_params(dpi_save=200, vector_friendly=True, fontsize=12)
         warnings.filterwarnings("ignore", category=UserWarning, message="No data for colormapping provided via 'c'")
         # Set Matplotlib font types for vector graphics
         mpl.rcParams["pdf.fonttype"] = 42
         mpl.rcParams["ps.fonttype"] = 42
         mpl.rcParams["figure.figsize"] = [6, 4]
+        mpl.rcParams["savefig.dpi"] = 200
+    else:
+        mpl.rcParams["savefig.dpi"] = 400
         
     sns.set_theme(style="darkgrid", rc={"grid.color": ".6", "grid.linestyle": ":"})
     sns.set_context("paper", font_scale=1.)
     
     mpl.rcParams["axes.grid"] = True
-    mpl.rcParams["savefig.dpi"] = 500
     mpl.rcParams["figure.autolayout"] = False
     mpl.rcParams["legend.frameon"] = True
