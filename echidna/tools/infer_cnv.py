@@ -1,6 +1,6 @@
 # echidna.tools.hmm.py
 
-import logging, os, re
+import logging, os, re, sys
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,20 @@ from echidna.utils import get_logger, ECHIDNA_GLOBALS
 
 logger = get_logger(__name__)
 
+def cnv_results(adata):
+    infer_cnv_save_path = None
+    if "infer_cnv" not in adata.uns["echidna"]["save_data"]:
+        raise ValueError(
+            "Must run `ec.tl.infer_cnv` first."
+        )
+    infer_cnv_save_path = adata.uns["echidna"]["save_data"]["infer_cnv"]
+    if not os.path.exists(infer_cnv_save_path):
+        raise ValueError(
+            "Saved results not found. Run `ec.tl.infer_cnv` first."
+        )
+    
+    return pd.read_csv(infer_cnv_save_path)
+
 def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
     if genome is None:
         try:
@@ -25,7 +39,12 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
                 "cytoBands and wgEncodeGencodeCompV46."
             )
         except Exception as e:
+            logger.info(
+                "`genome` not set, defaulting to hg38"
+                "cytoBands and wgEncodeGencodeCompV46."
+            )
             logger.error(e)
+            raise IOError("Must enable internet connection to fetch default genome data.")
     echidna = load_model(adata)
     eta = echidna.eta_ground_truth
     # normalize out variance of each gene from eta
@@ -38,7 +57,8 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
     del echidna
     torch.cuda.empty_cache()
     
-    genome["band"] = genome["chrom"] + "_" + genome["band"]
+    if "chr" not in genome["band"].iloc[0]:
+        genome["band"] = genome["chrom"] + "_" + genome["band"]
     genome = sort_chromosomes(genome)
 
     clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
@@ -67,7 +87,7 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
         )
     
     infer_cnv_save_path = os.path.join(
-        ECHIDNA_GLOBALS["save_folder"] + "echidna_cnv.csv"
+        ECHIDNA_GLOBALS["save_folder"], "_echidna_cnv.csv"
     )
     bands_eta_means.to_csv(
         infer_cnv_save_path,

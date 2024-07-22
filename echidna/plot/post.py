@@ -5,7 +5,7 @@ import seaborn as sns
 import scanpy as sc
 import numpy as np
 import pandas as pd
-import logging
+import logging, os
 
 from echidna.tools.eval import (
     eta_cov_tree_elbow_thresholding,
@@ -13,7 +13,7 @@ from echidna.tools.eval import (
     eta_cov_tree,
 )
 from echidna.tools.housekeeping import load_model
-from echidna.tools.hmm import sort_chromosomes
+from echidna.tools.infer_cnv import sort_chromosomes
 from echidna.plot.utils import save_figure, activate_plot_settings
 from echidna.utils import get_logger
 
@@ -25,6 +25,11 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     if "infer_cnv" not in adata.uns["echidna"]["save_data"]:
         raise ValueError("Must run `ec.tl.infer_cnv` first.")
     file_save_path = adata.uns["echidna"]["save_data"]["infer_cnv"]
+    if not os.path.exists(file_save_path):
+        raise ValueError(
+            "Saved results not found. Run `ec.tl.infer_cnv` first."
+        )
+    
     band_means_states = pd.read_csv(file_save_path)
     
     band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
