@@ -8,9 +8,9 @@ import pandas as pd
 import logging, os
 
 from echidna.tools.eval import (
-    eta_cov_tree_elbow_thresholding,
-    eta_cov_tree_cophenetic_thresholding,
-    eta_cov_tree,
+    eta_tree,
+    eta_tree_elbow_thresholding,
+    eta_tree_cophenetic_thresholding,
 )
 from echidna.tools.housekeeping import load_model
 from echidna.tools.infer_cnv import sort_chromosomes
@@ -139,31 +139,41 @@ def plot_loss(losses: list, label: str, log_loss: bool=False):
 
     plt.show()
 
-def dendrogram(adata, elbow: bool=False, filepath: str=None):
+def dendrogram(adata, elbow: bool=False, filepath: str=None, **kwargs):
     activate_plot_settings()
     echidna = load_model(adata)
     try:
         method = adata.uns["echidna"]["save_data"]["dendrogram_method"]
+        cov_bool = bool(adata.uns["echidna"]["save_data"]["dendrogram_cov"])
+        cov_method = "cov" if cov_bool else "corr"
     except Exception as e:
         logger.error(f"Must run `ec.tl.echidna_clones` first. {e}")
-    if elbow==True and method!="elbow": logger.warning("`elbow=True` only applies to `method=\"elbow\"`.")
-    if method=="elbow":
-        fig = eta_cov_tree_elbow_thresholding(
+        return
+
+    if elbow and method != "elbow":
+        logger.warning("`elbow=True` only applies to `method=\"elbow\"`.")
+
+    if method == "elbow":
+        fig = eta_tree_elbow_thresholding(
             echidna.eta_ground_truth,
+            method=cov_method,
             plot_dendrogram=not elbow,
             plot_elbow=elbow,
         )
-    elif method=="cophenetic":
-        fig = eta_cov_tree_cophenetic_thresholding(
+    elif method == "cophenetic":
+        fig = eta_tree_cophenetic_thresholding(
             echidna.eta_ground_truth,
+            method=cov_method,
             plot_dendrogram=True,
         )
     else:
-        fig = eta_cov_tree(
+        fig = eta_tree(
             echidna.eta_ground_truth,
+            method=cov_method,
             thres=adata.uns["echidna"]["save_data"]["threshold"],
             plot_dendrogram=True,
         )
+
     if filepath: save_figure(fig, filepath)
     del echidna
 

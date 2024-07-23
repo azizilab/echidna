@@ -193,21 +193,23 @@ def mahalanobis_distance_matrix(data, cov_matrix):
     
     return distance_matrix
 
-def eta_cov_tree_elbow_thresholding(
+def distance_matrix_helper(eta, method):
+    if method == "cov":
+        return torch.cov(eta).cpu().detach().numpy()
+    elif method == "corr":
+        eta_corr = torch.corrcoef(eta).cpu().detach().numpy()
+        return 1 - eta_corr
+    else:
+        raise ValueError("Invalid method. Use 'cov' or 'corr'.")
+
+def eta_tree_elbow_thresholding(
     eta,
+    method,
     plot_dendrogram: bool=False,
     plot_elbow: bool=False
 ):
-    """Return clone tree based on learned covariance and compute
-    elbow-optimized cutoff.
-    
-    Parameters
-    ----------
-    eta : torch.Tensor
-    plot_dendrogram : bool
-    plot_elbow : bool
-    """
-    Z = linkage(torch.cov(eta).cpu().detach().numpy(), "average")
+    dist_mat = distance_matrix_helper(eta, method)
+    Z = linkage(dist_mat, "average")
     distance = Z[:, 2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
@@ -231,50 +233,50 @@ def eta_cov_tree_elbow_thresholding(
         logger.info(f"Dendrogram knee point: {knee_point + 1}")
         logger.info(f"Dendrogram threshold: {threshold:.4f}")
         return dendrogram(Z, color_threshold=threshold, no_plot=True)
-    
-def eta_cov_tree_cophenetic_thresholding(
-    mat, 
-    method="average", 
+
+def eta_tree_cophenetic_thresholding(
+    eta, 
+    method,
     frac=0.7, 
     dist_matrix=False,
     plot_dendrogram: bool=False,
 ):
+    dist_mat = distance_matrix_helper(eta, method)
     if dist_matrix:
-        Z = linkage(squareform(mat), method)
+        Z = linkage(squareform(dist_mat), "average")
     else:
-        Z = linkage(torch.cov(mat).cpu().detach().numpy(), method)
-    # Compute the cophenetic distances
+        Z = linkage(dist_mat, "average")
     coph_distances = cophenet(Z)
-
     max_coph_distance = np.max(coph_distances)
     threshold = frac * max_coph_distance
     
     if not plot_dendrogram:
+        logger.info(f"Dendrogram threshold: {threshold:.4f}")
         return dendrogram(Z, color_threshold=threshold, no_plot=True)
     else:
         dendrogram(Z, color_threshold=threshold, no_plot=False)
 
-def eta_cov_tree(
+def eta_tree(
     eta, 
+    method,
     thres: float, 
     plot_dendrogram: bool=False
 ):
-    """Return clone tree based on learned covariance.
-    """
-    Z = linkage(torch.cov(eta).cpu().detach().numpy(), "average")
+    dist_mat = distance_matrix_helper(eta, method)
+    Z = linkage(dist_mat, "average")
     if not plot_dendrogram:
         return dendrogram(Z, color_threshold=thres, no_plot=True)
     else:
         dendrogram(Z, color_threshold=thres, no_plot=False)
 
-def assign_clones(dn, X):
+def assign_clones(dn, adata):
     """Assign clones based on the covariance tree for each cell.
 
     Parameters
     ----------
     dn : dict
         A dictionary containing the leaves color list and leaves information.
-    X : sc.AnnData
+    adata : sc.AnnData
         Annotated data matrix.
     """
     # Extract leaves color list and leaves
@@ -283,43 +285,55 @@ def assign_clones(dn, X):
     ))
 
     # Check for echidna model in AnnData object
-    if "echidna" not in X.uns:
+    if "echidna" not in adata.uns:
         raise ValueError(
             "No echidna model has been saved for this AnnData object."
         )
 
     # Get cluster label from echidna model
-    cluster_label = X.uns["echidna"]["config"]["clusters"]
+    cluster_label = adata.uns["echidna"]["config"]["clusters"]
 
     # Map hierarchical colors to cells
-    hier_colors = [color_dict[int(i)] for i in X.obs[cluster_label]]
+    hier_colors = [color_dict[int(i)] for i in adata.obs[cluster_label]]
     
     # Assign hierarchical colors to echidna clones
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
-        X.obs["echidna_clones"] = pd.Series(
+        adata.obs["echidna_clones"] = pd.Series(
             hier_colors,
-            index=X.obs.index,
+            index=adata.obs.index,
             dtype="category",
         )
 
-def echidna_clones(adata, method="elbow", threshold=0.):
+def echidna_clones(
+    adata,
+    method: str="elbow",
+    cov: bool=False,
+    threshold: float=0.,
+):
     echidna = load_model(adata)
-    if threshold > 0.: method="manual"
-    if method=="elbow":
-        adata.uns["echidna"]["save_data"]["dendrogram_method"] = "elbow"
-        dn = eta_cov_tree_elbow_thresholding(echidna.eta_ground_truth)
-    elif method=="cophenetic":
-        adata.uns["echidna"]["save_data"]["dendrogram_method"] = "cophenetic"
-        dn = eta_cov_tree_cophenetic_thresholding(echidna.eta_ground_truth)
+    adata.uns["echidna"]["save_data"]["dendrogram_cov"] = cov
+    cov_method = "cov" if cov else "corr"
+    
+    # If a threshold is set, use that threshold
+    if threshold > 0.:
+        method = "manual"
+    
+    adata.uns["echidna"]["save_data"]["dendrogram_method"] = method
+    
+    if method == "elbow":
+        dn = eta_tree_elbow_thresholding(echidna.eta_ground_truth, method=cov_method)
+    elif method == "cophenetic":
+        dn = eta_tree_cophenetic_thresholding(echidna.eta_ground_truth, method=cov_method)
     else:
-        adata.uns["echidna"]["save_data"]["dendrogram_method"] = "manual"
         adata.uns["echidna"]["save_data"]["threshold"] = threshold
-        if threshold==0.: logger.warning(
-            "If not using `elbow` or `cophenetic` method"
-            ", you must set `threshold` manually. Default `threshold=0`."
-        )
-        dn = eta_cov_tree(echidna.eta_ground_truth, thres=threshold)
+        if threshold == 0.:
+            logger.warning(
+                "If not using `elbow` or `cophenetic` method, "
+                "you must set `threshold` manually. Default `threshold=0`."
+            )
+        dn = eta_tree(echidna.eta_ground_truth, method=cov_method, thres=threshold)
+    
     assign_clones(dn, adata)
     logger.info(
         "Added `.obs['echidna_clones']`: the learned clones from eta."
