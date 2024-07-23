@@ -5,6 +5,7 @@ import seaborn as sns
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress
+from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram
 
 import torch
 from pyro import render_model
@@ -121,7 +122,7 @@ def ppc_W(adata, learned_params, filename: str=None):
     
     plot_true_vs_pred(W_learned, W_true, name="W", filename=filename)
 
-def ppc_cov(adata, learned_params, filename: str=None):
+def ppc_cov(adata, learned_params, filename: str=None, difference: bool=False):
     echidna_sim = load_model(adata, simulation=True)
     echidna = load_model(adata)
     
@@ -129,25 +130,72 @@ def ppc_cov(adata, learned_params, filename: str=None):
     cov_matrix_simulated = echidna_sim.cov_ground_truth.detach().cpu().numpy()
     cov_matrix_real = echidna.cov_ground_truth.detach().cpu().numpy()
     cov_matrix_diff = cov_matrix_real - cov_matrix_simulated
-    
-    # Create heatmaps
-    plt.figure(figsize=(18, 6))
-    
-    # Plot the real covariance matrix
-    plt.subplot(1, 3, 1)
-    sns.heatmap(cov_matrix_real, cmap='coolwarm', annot=True, fmt='.2f')
-    plt.title('Covariance Matrix (Real)')
 
-    # Plot the simulated covariance matrix
-    plt.subplot(1, 3, 2)
-    sns.heatmap(cov_matrix_simulated, cmap='coolwarm', annot=True, fmt='.2f')
-    plt.title('Covariance Matrix (Learned)')
-
-    # Plot the difference between the two covariance matrices
-    plt.subplot(1, 3, 3)
-    sns.heatmap(cov_matrix_diff, cmap='coolwarm', annot=True, fmt='.2f')
-    plt.title('Difference (Real - Learned)')
-    plt.tight_layout()
+    if difference:
+        # Create heatmaps
+        plt.figure(figsize=(18, 6))
+        
+        # Plot the real covariance matrix
+        plt.subplot(1, 3, 1)
+        sns.heatmap(cov_matrix_real, cmap='coolwarm', annot=True, fmt='.2f')
+        plt.title('Covariance Matrix (Real)')
+    
+        # Plot the simulated covariance matrix
+        plt.subplot(1, 3, 2)
+        sns.heatmap(cov_matrix_simulated, cmap='coolwarm', annot=True, fmt='.2f')
+        plt.title('Covariance Matrix (Learned)')
+    
+        # Plot the difference between the two covariance matrices
+        plt.subplot(1, 3, 3)
+        sns.heatmap(cov_matrix_diff, cmap='coolwarm', annot=True, fmt='.2f')
+        plt.title('Difference (Real - Learned)')
+        plt.tight_layout()
+    else:
+        n = cov_matrix_real.shape[-1]
+        df1 = pd.DataFrame(cov_matrix_simulated, columns=[f"Clst {i}" for i in range(n)], index=[f"Clst {i}" for i in range(n)])
+        df2 = pd.DataFrame(cov_matrix_real, columns=[f"Clst {i}" for i in range(n)], index=[f"Clst {i}" for i in range(n)])
+        
+        # Perform hierarchical clustering on the second dataset (original covariance)
+        linkage_rows = linkage(df2, method='average', metric='euclidean')
+        linkage_cols = linkage(df2.T, method='average', metric='euclidean')
+        
+        # Get the order of the rows and columns
+        row_order = leaves_list(linkage_rows)
+        col_order = leaves_list(linkage_cols)
+        
+        # Reorder both datasets
+        df2_ordered = df2.iloc[row_order, col_order]
+        df1_ordered = df1.iloc[row_order, col_order]
+        
+        # Create a grid for the plots
+        fig = plt.figure(figsize=(20, 10))
+        
+        # Define the axes for the first plot (Original Covariance)
+        gs = fig.add_gridspec(3, 4, width_ratios=[0.05, 1, 0.05, 1], height_ratios=[0.2, 1, 0.05], wspace=0.1, hspace=0.1)
+        ax_col_dendro1 = fig.add_subplot(gs[0, 1])
+        ax_heatmap1 = fig.add_subplot(gs[1, 1])
+        
+        # Define the axes for the second plot (Refitted Covariance)
+        ax_col_dendro2 = fig.add_subplot(gs[0, 3])
+        ax_heatmap2 = fig.add_subplot(gs[1, 3])
+        
+        # Plot dendrogram for columns of the first dataset (Original Covariance)
+        dendro_col1 = dendrogram(linkage_cols, ax=ax_col_dendro1, orientation='top', no_labels=True, color_threshold=0)
+        ax_col_dendro1.set_xticks([])
+        ax_col_dendro1.set_yticks([])
+        ax_col_dendro1.set_title("Original Covariance")
+        
+        # Plot heatmap for the first dataset (Original Covariance)
+        sns.heatmap(df2_ordered, ax=ax_heatmap1, cbar=False, xticklabels=False, yticklabels=True)
+        
+        # Plot dendrogram for columns of the second dataset (Refitted Covariance)
+        dendro_col2 = dendrogram(linkage_cols, ax=ax_col_dendro2, orientation='top', no_labels=True, color_threshold=0)
+        ax_col_dendro2.set_xticks([])
+        ax_col_dendro2.set_yticks([])
+        ax_col_dendro2.set_title("Refitted Covariance")
+        
+        # Plot heatmap for the second dataset (Refitted Covariance)
+        sns.heatmap(df1_ordered, ax=ax_heatmap2, cbar=False, xticklabels=False, yticklabels=True)
     
     if filename: plt.savefig(filename)
     plt.show()
