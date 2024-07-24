@@ -119,7 +119,7 @@ def sort_chromosomes(df):
         sorted_index = sorted(df.index, key=chrom_key)
         return df[sorted_index]    
 
-def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transition=1, startprob=1, verbose=False):
+def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transmat_prior=1, startprob_prior=1, verbose=False):
     """Implements a gaussian hmm to call copy number states smoothing along the genome
     
     Parameters
@@ -128,8 +128,8 @@ def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transition=1, st
     n_components: number of components to use for the hmm. We default to 5 for better sensitivity.
     p_thresh: cutoff to determine if a cluster should also be neutral
     neutral: the number to use for neutral. For Echidna, this is always 2. 
-    transition: specifies the transmat_prior in the GaussianHMM function
-    startprob: specifies the startprob_prior in the GaussianHMM function
+    transmat_prior: Parameters of the Dirichlet prior distribution for each row of the transition probabilities
+    startprob_prior: Parameters of the Dirichlet prior distribution for startprob_
     
     Returns
     -------
@@ -143,8 +143,8 @@ def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transition=1, st
             n_components=n_components,
             random_state=idx[i],
             n_iter=100,
-            transmat_prior=transition,
-            startprob_prior=.8
+            transmat_prior=transmat_prior,
+            startprob_prior=startprob_prior,
         )
         model.fit(vals[:, None])
         models.append(model)

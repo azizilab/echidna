@@ -60,7 +60,7 @@ def ppc(adata, variable, **kwargs):
     
     adata_tmp = adata[adata.obs["echidna_split"] != "discard", adata.var.echidna_matched_genes].copy()
     config = EchidnaConfig.from_dict(adata_tmp.uns["echidna"]["config"])
-    data = convert_torch(adata_tmp, config)
+    data = build_torch_tensors(adata_tmp, config)
     learned_params = get_learned_params(load_model(adata_tmp), data)
 
     ppc_funcs = {

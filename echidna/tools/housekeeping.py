@@ -105,6 +105,10 @@ def save_model(adata, model, overwrite=False, simulation=False):
     
     if run_id_key_hist not in adata.uns["echidna"]:
         adata.uns["echidna"][run_id_key_hist] = []
+    else:
+        run_hist = adata.uns["echidna"][run_id_key_hist]
+        if isinstance(run_hist, np.ndarray):
+            adata.uns["echidna"][run_id_key_hist] = list(run_hist)
     sim = "" if not simulation else "simulation "
     if run_id_key not in adata.uns["echidna"] or not overwrite:
         adata.uns["echidna"][run_id_key] = datetime.now().strftime("%Y%m%d-%H%M%S")

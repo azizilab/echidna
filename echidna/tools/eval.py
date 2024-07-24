@@ -47,7 +47,9 @@ def sample(adata, variable, **kwargs):
         "cov": sample_cov, 
     }
     
-    return [sample_funcs[v](adata, **kwargs) for v in variable]
+    samples = [sample_funcs[v](adata, **kwargs) for v in variable]
+    if len(samples) == 1: return samples[0]
+    return samples
 
 def sample_X(adata, num_cells=None, return_z=False):
     """Sample X given posterior estimates of c and eta

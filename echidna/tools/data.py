@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import warnings
 
 from echidna.tools.utils import EchidnaConfig, _custom_sort
 from echidna.utils import get_logger
@@ -116,8 +117,9 @@ def train_val_split(adata, config):
 
         n_val = int(config.val_split * adata_vc.min())
         smallest_tp = adata_vc.index[adata_vc.argmin()]
-
-        adata.obs["echidna_split"] = "train"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            adata.obs["echidna_split"] = "train"
         for tp in adata_vc.index:
             tp_filter = adata.obs[config.timepoint_label] == tp
             cur_tp_index = adata.obs[tp_filter].index
@@ -136,7 +138,9 @@ def train_val_split(adata, config):
     else:
         n_val = int(config.val_split * adata.shape[0])
         val_idx = rng.choice(adata.obs.index, n_val, replace=False)
-        adata.obs["echidna_split"] = "train"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            adata.obs["echidna_split"] = "train"
         adata.obs.loc[adata.obs.index[val_idx], "echidna_split"] = "validation"
         adata.obs["echidna_split"] = adata.obs["echidna_split"].astype("category")
         
