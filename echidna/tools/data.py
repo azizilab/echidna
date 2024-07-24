@@ -95,6 +95,13 @@ def pre_process(
         adata.write_h5ad(filepath)
     return adata
 
+def filter_low_var_genes(
+    adata: sc.AnnData,
+    var_threshold: float=0.01
+) -> sc.AnnData:
+    gene_filter = adata.X.var(axis=0) > var_threshold
+    return adata[:, gene_filter]
+
 def train_val_split(adata, config):
     rng = np.random.default_rng(config.seed)
     
@@ -198,7 +205,7 @@ def match_genes(adata, Wdf):
         for c in col_name:
             logger.info(f"Added `.var[{c}]` : CN entries for genes contained in W.")
 
-def convert_torch(adata, config):
+def build_torch_tensors(adata, config):
     """
     Takes anndata and builds Torch tensors.
     """

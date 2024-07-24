@@ -24,7 +24,7 @@ from echidna.tools.model import Echidna
 from echidna.tools.eval import sample
 from echidna.tools.housekeeping import save_model, set_posteriors
 from echidna.tools.data import (
-    convert_torch,
+    build_torch_tensors,
     match_genes,
     train_val_split,
     create_z_pi,
@@ -66,8 +66,8 @@ def echidna_train(adata, Wdf, config=EchidnaConfig()):
     
     adata_match = adata[:, adata.var.echidna_matched_genes].copy()
     
-    train_data = convert_torch(adata_match[adata_match.obs["echidna_split"]=="train"], config)
-    val_data = convert_torch(adata_match[adata_match.obs["echidna_split"]=="validation"], config)
+    train_data = build_torch_tensors(adata_match[adata_match.obs["echidna_split"]=="train"], config)
+    val_data = build_torch_tensors(adata_match[adata_match.obs["echidna_split"]=="validation"], config)
 
     config.num_cells = train_data[0].shape[-2]
     config.num_genes = train_data[0].shape[-1]

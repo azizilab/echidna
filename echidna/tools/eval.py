@@ -25,21 +25,29 @@ from echidna.utils import get_logger
 logger = get_logger(__name__)
 
 def sample(adata, variable, **kwargs):
-    if variable not in ("X", "W", "c", "eta", "cov"):
+    if isinstance(variable, str):
+        variable = [variable]
+    elif not isinstance(variable, list):
+        raise ValueError("`variable` must be either a string or a list.")
+    
+    allowed_vars = {"X", "W", "c", "cov", "eta"}
+    
+    invalid_vars = set(variable) - allowed_vars
+    if invalid_vars:
         raise ValueError(
-            "`variable` must be one of or a list of "
-            "(\"X\", \"W\", \"c\", \"eta\", \"cov\")"
+            f"The following `variable` values are not allowed: {invalid_vars}. "
+            "Allowed values are (\"X\", \"W\", \"c\", \"eta\", \"cov\")."
         )
-        
+    
     sample_funcs = {
-        "X" : sample_X,
-        "W" : sample_W,
-        "c" : sample_c,
-        "eta" : sample_eta,
-        "cov" : sample_cov, 
+        "X": sample_X,
+        "W": sample_W,
+        "c": sample_c,
+        "eta": sample_eta,
+        "cov": sample_cov, 
     }
     
-    return sample_funcs[variable](adata, **kwargs)
+    return [sample_funcs[v](adata, **kwargs) for v in variable]
 
 def sample_X(adata, num_cells=None, return_z=False):
     """Sample X given posterior estimates of c and eta
