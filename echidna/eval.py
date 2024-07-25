@@ -223,7 +223,7 @@ def eta_corr_tree_elbow_thresholding(eta, plot_elbow=False, metric='average'):
     return dn
 
 # Assign clones based on the covariance tree for each cell
-def assign_clones(dn, X):
+def assign_clones(dn, X, key='eta_clones'):
     clst = dn.get('leaves_color_list')
     cluster_count = np.unique(clst).shape[0]
     for i in range(len(clst)):
@@ -235,7 +235,7 @@ def assign_clones(dn, X):
     color_dict.columns=['color']
     color_dict.index=keys
     hier_colors = [color_dict.loc[int(i)][0] for i in X.obs["leiden"]]
-    X.obs['eta_clones'] = hier_colors
+    X.obs[key] = hier_colors
 
 
 def mahalanobis_distance_matrix(data, cov_matrix):
