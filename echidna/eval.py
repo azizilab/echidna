@@ -180,8 +180,8 @@ def cov_tree(cov, thres):
     return dn
 
 # Return clone tree based on learned covariance and compute elbow-optimized cutoff
-def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
-    Z = linkage(torch.cov(eta).cpu().detach().numpy(), 'average')
+def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False, metric='average'):
+    Z = linkage(torch.cov(eta).cpu().detach().numpy(), metric)
     distance = Z[:,  2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
@@ -200,10 +200,10 @@ def eta_cov_tree_elbow_thresholding(eta, plot_elbow=False):
         plt.show()
     return dn
 
-def eta_corr_tree_elbow_thresholding(eta, plot_elbow=False):
+def eta_corr_tree_elbow_thresholding(eta, plot_elbow=False, metric='average'):
     eta_corr = torch.corrcoef(eta).cpu().detach().numpy()
     dist_mat = 1 - eta_corr
-    Z = linkage(dist_mat, 'average')
+    Z = linkage(dist_mat, metric)
     distance = Z[:,  2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
@@ -225,6 +225,11 @@ def eta_corr_tree_elbow_thresholding(eta, plot_elbow=False):
 # Assign clones based on the covariance tree for each cell
 def assign_clones(dn, X):
     clst = dn.get('leaves_color_list')
+    cluster_count = np.unique(clst).shape[0]
+    for i in range(len(clst)):
+        if clst[i] == 'C0':
+            clst[i] = f'C{cluster_count}'
+            cluster_count += 1
     keys = dn.get('leaves')
     color_dict = pd.DataFrame(clst)
     color_dict.columns=['color']
