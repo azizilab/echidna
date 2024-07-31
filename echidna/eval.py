@@ -8,6 +8,8 @@ from scipy.spatial.distance import squareform
 import pandas as pd
 from scipy.cluster.hierarchy import linkage, leaves_list
 from scipy.stats import linregress
+from scipy.spatial.distance import pdist
+from scipy.ndimage import gaussian_filter1d
 import seaborn as sns
 
 def pred_posterior_check(
@@ -177,6 +179,34 @@ def cov_tree(cov, thres):
     Z = linkage(cov, 'average')
     fig = plt.figure(figsize=(6, 3))
     dn = dendrogram(Z, color_threshold=thres)
+    return dn
+
+def eta_smoothing_elbow_thresholding(eta, plot_elbow=False):
+    eta_smoothed = gaussian_filter1d(eta, sigma=6, axis=1, radius=8)
+    dist_mat = pdist(eta_smoothed, metric='correlation')
+    
+    # Perform hierarchical/agglomerative clustering
+    Z = linkage(dist_mat, method='ward')
+
+    # Perform hierarchical/agglomerative clustering
+    #Z = linkage(dist_mat, method='average')
+
+    distance = Z[:,  2]
+    differences = np.diff(distance)
+    knee_point = np.argmax(differences)
+    threshold = distance[knee_point]
+    print("Knee point: ", knee_point + 1)
+    print("Threshold: ", threshold)
+    dn = dendrogram(Z, color_threshold=threshold)
+    if plot_elbow:
+        plt.figure()
+        plt.plot(range(1, len(differences) + 1), differences, marker='o')
+        plt.axvline(x=knee_point + 1, linestyle='--', label='ELBOW threshold', color='red')
+        plt.legend()
+        plt.xlabel('Merge Step')
+        plt.ylabel('Difference in Distance')
+        plt.title('Elbow Method')
+        plt.show()
     return dn
 
 # Return clone tree based on learned covariance and compute elbow-optimized cutoff
