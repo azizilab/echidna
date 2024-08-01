@@ -36,8 +36,8 @@ def train_Echidna_early_stopping(echidna, X, W, pi, z, X_val, W_val, pi_val, z_v
         if val_loss < last_val:
           last_val = val_loss
           patience_trigger = 0
-        
-        patience_trigger += 1
+        else:
+          patience_trigger += 1
 
         if patience_trigger >= patience:
           break
