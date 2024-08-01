@@ -125,7 +125,7 @@ def __prepare_input(X, W, sample_name, timepoints, num_clusters, device):
     
     # format multi-timestep input
     else:
-        timepoints = sorted(X.obs['treatment'].unique())
+        timepoints = sorted(X.obs['condition'].unique())
         t1 = X[X.obs['condition'] == timepoints[0]].shape[0]
         t2 = X[X.obs['condition'] == timepoints[1]].shape[0]
         n_subsamples = min(t1, t2)
