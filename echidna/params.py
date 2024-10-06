@@ -7,7 +7,7 @@ import pandas as pd
 import pyro
 import torch.nn.functional as F
 
-# Function to retrive the learned parameters for one pass
+# Function to retrive the learned parameters from one pass of the model
 def get_learned_params(echidna, X, W, pi, z):
     guide_trace = pyro.poutine.trace(echidna.guide).get_trace(X, W, pi, z)
     trained_model = pyro.poutine.replay(echidna.model, trace=guide_trace)
@@ -56,3 +56,11 @@ def cov_posterior_estimate(inverse_gamma=False):
     cov = cov@cov.T
     cov = cov.numpy()
     return cov
+
+# Posterior mean of correlation matrix. Takes in estimated covariance
+def normalize_cov(cov):
+    std_dev = np.sqrt(np.diag(cov))
+    outer_std_dev = np.outer(std_dev, std_dev)
+    corr_matrix = cov / outer_std_dev
+    corr_matrix[np.diag_indices_from(corr_matrix)] = 1
+    return corr_matrix
