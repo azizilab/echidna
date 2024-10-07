@@ -425,10 +425,10 @@ def get_neutrals(PATH, ordered_genes, visaulize=False, thres_quantile=0.75, ext=
 	return pd.DataFrame(clust_neutral, clust_names, columns=[0]).T
 
 # compute gene dosage effect for a cohort of samples
-def gene_dosage_effect_cohort(USE_ST, PATH, all_neutrals, timepoint_order=[], ext=".h5"):
+def gene_dosage_effect_cohort(USE_ST, PATH, all_neutrals, to=[], ext=".h5"):
 
     def sort_timepoints(val):
-        custom_order = timepoint_order
+        custom_order = to
         return custom_order.index(val)
 
     corr_df = pd.DataFrame()
