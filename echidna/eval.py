@@ -316,15 +316,15 @@ def gene_dosage_effect(eta_samples, eta_mean, eta_mode, cluster_idx, c_shape, ti
     # delta Var(c|eta)
     # delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - c_shape[:, timepoint_idx]*eta_mode**2
     delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - \
-        c_shape[:, timepoint_idx]*eta_mode[None, cluster_idx]**2
+		c_shape[:, timepoint_idx]*eta_mode[None, cluster_idx]**2
 
     # Var(E[c|eta])
     exp_c_given_eta = c_shape[None, :, timepoint_idx] * \
         eta_samples[:, :, cluster_idx]
+        
     var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=0)
     # E[Var(c|eta)]
-    exp_var_c_given_eta = c_shape[None, :,
-                                  timepoint_idx] * eta_samples[:, :, cluster_idx]**2
+    exp_var_c_given_eta = c_shape[None, :,timepoint_idx] * eta_samples[:, :, cluster_idx]**2
     exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=0)
 
     # (Var(c|eta)-Var(c|eta_mode))/(Var(E[c|eta])+E[Var(c|eta)])
@@ -425,8 +425,6 @@ def get_neutrals(PATH, ordered_genes, visaulize=False, thres_quantile=0.75, ext=
 	return pd.DataFrame(clust_neutral, clust_names, columns=[0]).T
 
 # compute gene dosage effect for a cohort of samples
-
-
 def gene_dosage_effect_cohort(USE_ST, PATH, all_neutrals, timepoint_order=[], ext=".h5"):
 
     def sort_timepoints(val):
