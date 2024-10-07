@@ -410,18 +410,17 @@ def get_neutrals(PATH, ordered_genes, visaulize=False, thres_quantile=0.75, ext=
 						ax.plot(x, weight * (1 / np.sqrt(2 * np.pi * variance)) *
 								np.exp(-(x - mean) ** 2 / (2 * variance)),
 								label=f'Component mean={mean[0]:.3f}')
+      
+				logprob = gmm.score_samples(x.reshape(-1, 1))
+				pdf = np.exp(logprob)
+				ax.plot(x, pdf, '-k', label='Global Density')
 
-		if visaulize:
-			logprob = gmm.score_samples(x.reshape(-1, 1))
-			pdf = np.exp(logprob)
-			ax.plot(x, pdf, '-k', label='Global Density')
-
-			ax.set_xlabel('Eta values')
-			ax.set_ylabel('Density')
-			ax.set_title(f"Cluster {i} for {patient}")
-			ax.legend()
-			plt.tight_layout()
-			plt.show()
+				ax.set_xlabel('Eta values')
+				ax.set_ylabel('Density')
+				ax.set_title(f"Cluster {i} for {patient}")
+				ax.legend()
+				plt.tight_layout()
+				plt.show()
 	return pd.DataFrame(clust_neutral, clust_names, columns=[0]).T
 
 # compute gene dosage effect for a cohort of samples
