@@ -11,7 +11,14 @@ from scipy.stats import linregress, gaussian_kde
 from scipy.spatial.distance import pdist
 from scipy.ndimage import gaussian_filter1d
 import seaborn as sns
+import os
+import scanpy as sc
+import scipy
+from sklearn.mixture import GaussianMixture
+import tqdm
 
+
+######### SAMPLE LEVEL EVAL FUNCTIONS #######################
 
 def pred_posterior_check(
     X_learned: np.ndarray,
@@ -271,33 +278,126 @@ def assign_clones(dn, X, key='eta_clones'):
     X.obs[key] = hier_colors
 
 
-def mahalanobis_distance_matrix(data, cov_matrix):
-    cov_inv = torch.inverse(cov_matrix)
-    data_np = data.cpu().detach().numpy()
-    cov_inv_np = cov_inv.cpu().detach().numpy()
-    
-    num_samples = data_np.shape[0]
-    distance_matrix = np.zeros((num_samples, num_samples))
-    
-    for i in range(num_samples):
-        for j in range(num_samples):
-            delta = data_np[:, i] - data_np[:, j]
-            distance_matrix[i, j] = np.sqrt(np.dot(np.dot(delta, cov_inv_np), delta.T))
-    
-    return distance_matrix
+# Compute gene dosage effect. Variance explained on posterior samples
+def gene_dosage_effect(eta_samples, eta_mean, eta_mode, cluster_idx, c_shape, timepoint_idx):
+  #delta Var(c|eta)
+  # delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - c_shape[:, timepoint_idx]*eta_mode**2
+  delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - c_shape[:, timepoint_idx]*eta_mode[None, cluster_idx]**2
 
-def eta_cov_tree_cophenetic_thresholding(mat, method='average', frac=0.7, dist_matrix=False):
-    if dist_matrix:
-        Z = linkage(squareform(mat), method)
-    else:
-        Z = linkage(torch.cov(mat).cpu().detach().numpy(), method)
-    # Compute the cophenetic distances
-    coph_distances = cophenet(Z)
+  #Var(E[c|eta])
+  exp_c_given_eta = c_shape[None, :, timepoint_idx] * eta_samples[:, :, cluster_idx]
+  var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=0)
+  #E[Var(c|eta)]
+  exp_var_c_given_eta = c_shape[None, :, timepoint_idx] * eta_samples[:, :, cluster_idx]**2
+  exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=0)
 
-    max_coph_distance = np.max(coph_distances)
-    threshold = frac * max_coph_distance
+  #(Var(c|eta)-Var(c|eta_mode))/(Var(E[c|eta])+E[Var(c|eta)])
+  var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)
+
+  return var_exp
+
+
+
+######### COHORT LEVEL EVAL FUNCTIONS #######################
+
+# fit GMM to obtain neutral level for each cluster. 
+# Genes have to be ordered for the Gaussian filter.
+def get_neutrals(PATH, ordered_genes):
+    clust_neutral = []
+    clust_names = []
+    for patient in os.listdir(PATH):
+        print(patient)
+        path = os.path.join(PATH, patient)
+        eta = pd.read_csv(os.path.join(path + "/eta.csv"), index_col=0).T
+        Xad = sc.read_h5ad(os.path.join(path + "/X.h5"))
+        df = Xad.to_df()
+        var = pd.DataFrame(df.var())
+        var_filter = var[var[0]>.015].index
+        ordered = [i for i in ordered_genes if i in eta.columns]
+        ordered_filtered = [i for i in ordered if i in var_filter]
+        eta = eta[ordered]
+        eta_filtered = eta[ordered_filtered]
+        eta_filtered_smoothed = scipy.ndimage.gaussian_filter1d(eta_filtered, sigma=10, axis=1, radius=20)
+        obs = Xad.obs
+        for i in np.unique(obs["leiden"]):
+            vals_filtered = eta_filtered_smoothed[int(i), :]
+            gmm = GaussianMixture(n_components=5)
+            gmm.fit(np.asarray([vals_filtered]).T)
+            labels = gmm.predict(np.asarray([vals_filtered]).T)
+            neut_component = scipy.stats.mode(labels)[0]
+            gmm_val = pd.DataFrame({"components":labels,"vals":vals_filtered})
+            gmm_mean = np.mean(gmm_val[gmm_val["components"]==neut_component]["vals"])
+            gmm_std = np.std(gmm_val[gmm_val["components"]==neut_component]["vals"])
+            clust_neutral.append(gmm_mean)
+            n = patient + "_" + i
+            clust_names.append(n)
+    return pd.DataFrame(clust_neutral, clust_names, columns=[0]).T
+
+# compute gene dosage effect for a cohort of samples
+
+def gene_dosage_effect_cohort(USE_ST, PATH, all_neutrals, timepoint_order = [], ext=".h5"):
+
+    def sort_timepoints(val):
+        custom_order = timepoint_order
+        return custom_order.index(val)
     
-    # Plot the dendrogram with the threshold
-    dn = dendrogram(Z, color_threshold=threshold)
-    
-    return dn
+    corr_df = pd.DataFrame()
+
+    #timepoint_order = ['untreated', 'pre', 'on', 'on2', 'post', 'post1_pre2', 'post1_on2']
+    timepoint_order = {name: index for index, name in enumerate(timepoint_order)}
+
+    for patient in tqdm.tqdm((os.listdir(PATH))):
+      if 'DS' in patient or '_' in patient:
+        continue
+      path = os.path.join(PATH, patient)
+      eta_mean = pd.read_csv(os.path.join(path + "/eta.csv"), index_col=0)
+      eta_mean = torch.tensor(eta_mean.to_numpy()).float()
+      c_shape = pd.read_csv(path +"/c_shape.csv", index_col=0)
+      c_shape = torch.tensor(np.array(c_shape))
+      if USE_ST:
+          c_pre = pd.read_csv(os.path.join(path + "/c.csv"), index_col=0)
+      else:
+          c_pre = pd.read_csv(os.path.join(path + "/c_pre.csv"), index_col=0)
+      cov = np.load(os.path.join(path + "/cov.npy"))
+      cov = torch.tensor(cov)
+
+      ad = sc.read_h5ad(os.path.join(path + f"/X{ext}"))
+
+      obs = ad.obs
+      clusters = c_pre.columns
+      if not USE_ST:
+        all_timepoints = sorted(ad.obs['condition'].unique(), key=sort_timepoints)
+
+      eta_samples = sample_Eta(eta_mean, cov)
+      eta_mode = all_neutrals.filter(regex=f"^{patient}").loc[0].to_numpy()
+
+
+      for cluster in clusters:
+          i = int(cluster)
+
+          if not USE_ST:
+            timepoints, counts = np.unique(obs[obs["leiden"]==cluster]["condition"], return_counts=True)
+            timepoints = np.array(timepoints)
+            counts = np.array(counts)
+
+            sorted_indices = np.argsort([timepoint_order[tp] for tp in timepoints])
+
+            timepoints = timepoints[sorted_indices]
+            counts = counts[sorted_indices]
+
+
+            timepoint_idx = np.argmax(counts)
+            cluster_tp = timepoints[timepoint_idx]
+            if cluster_tp == all_timepoints[0]:
+              timepoint_idx = 0
+            else:
+              timepoint_idx = 1
+          else:
+            timepoint_idx = 0
+
+          var_exp = gene_dosage_effect(eta_samples, eta_mean, eta_mode, i, c_shape, timepoint_idx)
+
+          df = pd.DataFrame(var_exp, index=c_pre.index, columns=[patient+"_"+cluster])
+          corr_df = pd.concat((corr_df, df), axis=1, join='outer')
+
+    return corr_df
