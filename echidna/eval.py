@@ -419,8 +419,9 @@ def get_neutrals(PATH, ordered_genes, visaulize=False, thres_quantile=0.75, ext=
 				ax.set_ylabel('Density')
 				ax.set_title(f"Cluster {i} for {patient}")
 				ax.legend()
-				plt.tight_layout()
-				plt.show()
+		plt.tight_layout()
+		if visaulize:
+			plt.show()
 	return pd.DataFrame(clust_neutral, clust_names, columns=[0]).T
 
 # compute gene dosage effect for a cohort of samples
