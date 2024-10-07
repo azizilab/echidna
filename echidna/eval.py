@@ -337,7 +337,7 @@ def gene_dosage_effect(eta_samples, eta_mean, eta_mode, cluster_idx, c_shape, ti
 
 # fit GMM to obtain neutral level for each cluster.
 # Genes have to be ordered for the Gaussian filter.
-def get_neutrals(PATH, ordered_genes, visaulize=False):
+def get_neutrals(PATH, ordered_genes, visaulize=False, thres_quantile=0.75, ext='.h5'):
 	clust_neutral = []
 	clust_names = []
 	for patient in os.listdir(PATH):
@@ -345,13 +345,13 @@ def get_neutrals(PATH, ordered_genes, visaulize=False):
 
 		# Load data
 		eta = pd.read_csv(os.path.join(path + "/eta.csv"), index_col=0).T
-		Xad = sc.read_h5ad(os.path.join(path + "/X.h5"))
+		Xad = sc.read_h5ad(os.path.join(path + f"/X{ext}"))
 
 		df = Xad.to_df()
 
 		# Variance filter
 		var = pd.DataFrame(df.var())
-		thres = np.quantile(var[0], 0.75)
+		thres = np.quantile(var[0], thres_quantile)
 		var_filter = var[var[0] >= thres].index
 		ordered = [i for i in ordered_genes if i in eta.columns]
 		ordered_filtered = [i for i in ordered if i in var_filter]
