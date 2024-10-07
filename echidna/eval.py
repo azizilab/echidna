@@ -435,7 +435,7 @@ def gene_dosage_effect_cohort(USE_ST, PATH, all_neutrals, to=[], ext=".h5"):
 
     # timepoint_order = ['untreated', 'pre', 'on', 'on2', 'post', 'post1_pre2', 'post1_on2']
     timepoint_order = {name: index for index,
-                       name in enumerate(timepoint_order)}
+                       name in enumerate(to)}
 
     for patient in tqdm.tqdm((os.listdir(PATH))):
         path = os.path.join(PATH, patient)
