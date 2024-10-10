@@ -1,7 +1,5 @@
 # echidna.tools.eval.py
 
-from typing import Tuple
-import logging
 import warnings
 from anndata._core.views import ImplicitModificationWarning
 
@@ -10,14 +8,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.cluster.hierarchy import dendrogram, linkage, cophenet
 from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist
+from scipy.ndimage import gaussian_filter1d
 
 import torch
 import pyro
 import pyro.distributions as dist
 
 from echidna.tools.custom_dist import TruncatedNormal
-from echidna.tools.model import Echidna
-from echidna.tools.housekeeping import get_learned_params, load_model
+from echidna.tools.housekeeping import load_model
 from echidna.tools.utils import _custom_sort
 from echidna.tools.data import create_z_pi
 from echidna.utils import get_logger
@@ -166,60 +165,100 @@ def sample_eta(adata, num_samples=(1,)):
     return eta_samples
 
 def sample_cov(adata, num_samples=(1,)):
-    """Return learned covariance across clusters.
-    """
-    echidna = load_model(adata)
-    
-    corr_loc = pyro.param("corr_loc")
-    corr_scale = pyro.param("corr_scale")
-    corr_cov = torch.diag(corr_scale)
-    corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
-    transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
-    chol_samples = transformed_dist.sample(num_samples).squeeze()
-    L_shape = pyro.param("scale_shape")
-    L_rate = pyro.param("scale_rate")
-    L = L_shape/L_rate
-    
-    scale = L[:, None] if not echidna.config.inverse_gamma else 1/L[:, None]
-    cov = chol_samples * torch.sqrt(scale)
-    cov = cov@cov.T
-    
-    del echidna
-    
-    return cov
+    """Sample a covariance matrix from the posterior distribution.
 
-def mahalanobis_distance_matrix(data, cov_matrix):
+    Parameters
+    ----------
+    adata : AnnData
+        The annotated data matrix.
+    num_samples : int, optional
+        The number of samples to draw from the posterior distribution.
+        By default, draw a single sample.
+
+    Returns
+    -------
+    covariance : torch.Tensor
+        A covariance matrix sampled from the posterior distribution.
+        The covariance matrix is of shape `(num_genes, num_genes)`.
+    """
+    model = load_model(adata)
+    config = model.config
+    
+    # Sample a Cholesky decomposition of the covariance matrix
+    correlation_loc = pyro.param("corr_loc")
+    correlation_scale = pyro.param("corr_scale")
+    correlation_dist = dist.MultivariateNormal(correlation_loc, torch.diag(correlation_scale))
+    transformed_dist = dist.TransformedDistribution(correlation_dist, dist.transforms.CorrCholeskyTransform())
+    chol_samples = transformed_dist.sample(num_samples).squeeze()
+    
+    # Sample the scale for the covariance matrix
+    scale_shape = pyro.param("scale_shape")
+    scale_rate = pyro.param("scale_rate")
+    scale = scale_shape / scale_rate
+    
+    # Compute the covariance matrix
+    if not config.inverse_gamma:
+        scale = scale[:, None]
+    else:
+        scale = 1 / scale[:, None]
+    covariance = chol_samples * torch.sqrt(scale)
+    covariance = covariance @ covariance.T
+    
+    return covariance
+
+def normalize_cov(cov_matrix):
+    """Normalize a covariance matrix to a correlation matrix.
+
+    Parameters
+    ----------
+    cov_matrix : torch.Tensor, shape (n_features, n_features)
+        Covariance matrix.
+
+    Returns
+    -------
+    corr_matrix : torch.Tensor, shape (n_features, n_features)
+        Correlation matrix.
+    """
+    std_dev = torch.sqrt(torch.diag(cov_matrix))
+    outer_std_dev = std_dev[:, None] * std_dev[None, :]
+    corr_matrix = cov_matrix / outer_std_dev
+    corr_matrix.diagonal(0).fill_(1)
+    return corr_matrix
+
+def mahalanobis_distance_matrix(eta):
+    cov_matrix = torch.cov(eta)
     cov_inv = torch.inverse(cov_matrix)
-    data_np = data.cpu().detach().numpy()
-    cov_inv_np = cov_inv.cpu().detach().numpy()
-    
-    num_samples = data_np.shape[0]
-    distance_matrix = np.zeros((num_samples, num_samples))
-    
-    for i in range(num_samples):
-        for j in range(num_samples):
-            delta = data_np[:, i] - data_np[:, j]
-            distance_matrix[i, j] = np.sqrt(np.dot(np.dot(delta, cov_inv_np), delta.T))
+    diffs = eta.T.unsqueeze(1) - eta.T.unsqueeze(0)
+    distance_matrix = torch.sqrt((diffs @ cov_inv @ diffs.transpose(-1, -2)).squeeze(-1).squeeze(-1))
     
     return distance_matrix
 
-def distance_matrix_helper(eta, method):
-    if method == "cov":
+def distance_matrix_helper(eta, similarity_metric):
+    if similarity_metric == "smoothed":
+        eta = eta.cpu().detach().numpy()
+        eta = gaussian_filter1d(eta, sigma=6, axis=1, radius=8)
+        return pdist(eta, metric="correlation")
+    elif similarity_metric == "cov":
         return torch.cov(eta).cpu().detach().numpy()
-    elif method == "corr":
+    elif similarity_metric == "corr":
         eta_corr = torch.corrcoef(eta).cpu().detach().numpy()
         return 1 - eta_corr
+    elif similarity_metric == "mahalanobis":
+        return mahalanobis_distance_matrix(eta).cpu().detach().numpy()
     else:
-        raise ValueError("Invalid method. Use 'cov' or 'corr'.")
+        raise ValueError(
+            "Invalid similarity_metric. Use `smoothed`, `cov`, `corr`."
+        )
 
 def eta_tree_elbow_thresholding(
     eta,
-    method,
+    similarity_metric,
     plot_dendrogram: bool=False,
     plot_elbow: bool=False
 ):
-    dist_mat = distance_matrix_helper(eta, method)
-    Z = linkage(dist_mat, "average")
+    dist_mat = distance_matrix_helper(eta, similarity_metric)
+    link_metric = "ward" if similarity_metric == "smoothed" else "average"
+    Z = linkage(dist_mat, link_metric)
     distance = Z[:, 2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
@@ -246,16 +285,17 @@ def eta_tree_elbow_thresholding(
 
 def eta_tree_cophenetic_thresholding(
     eta, 
-    method,
+    similarity_metric,
     frac=0.7, 
     dist_matrix=False,
     plot_dendrogram: bool=False,
 ):
-    dist_mat = distance_matrix_helper(eta, method)
+    dist_mat = distance_matrix_helper(eta, similarity_metric)
+    link_metric = "ward" if similarity_metric == "smoothed" else "average"
     if dist_matrix:
-        Z = linkage(squareform(dist_mat), "average")
+        Z = linkage(squareform(dist_mat), link_metric)
     else:
-        Z = linkage(dist_mat, "average")
+        Z = linkage(dist_mat, link_metric)
     coph_distances = cophenet(Z)
     max_coph_distance = np.max(coph_distances)
     threshold = frac * max_coph_distance
@@ -268,12 +308,13 @@ def eta_tree_cophenetic_thresholding(
 
 def eta_tree(
     eta, 
-    method,
+    similarity_metric,
     thres: float, 
     plot_dendrogram: bool=False
 ):
-    dist_mat = distance_matrix_helper(eta, method)
-    Z = linkage(dist_mat, "average")
+    dist_mat = distance_matrix_helper(eta, similarity_metric)
+    link_metric = "ward" if similarity_metric == "smoothed" else "average"
+    Z = linkage(dist_mat, link_metric)
     if not plot_dendrogram:
         return dendrogram(Z, color_threshold=thres, no_plot=True)
     else:
@@ -289,24 +330,17 @@ def assign_clones(dn, adata):
     adata : sc.AnnData
         Annotated data matrix.
     """
-    # Extract leaves color list and leaves
     color_dict = dict(zip(
         dn.get("leaves"), dn.get("leaves_color_list")
     ))
 
-    # Check for echidna model in AnnData object
     if "echidna" not in adata.uns:
         raise ValueError(
             "No echidna model has been saved for this AnnData object."
         )
-
-    # Get cluster label from echidna model
     cluster_label = adata.uns["echidna"]["config"]["clusters"]
-
-    # Map hierarchical colors to cells
     hier_colors = [color_dict[int(i)] for i in adata.obs[cluster_label]]
-    
-    # Assign hierarchical colors to echidna clones
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
         adata.obs["echidna_clones"] = pd.Series(
@@ -318,12 +352,12 @@ def assign_clones(dn, adata):
 def echidna_clones(
     adata,
     method: str="elbow",
-    cov: bool=False,
+    metric: str=None,
     threshold: float=0.,
 ):
     echidna = load_model(adata)
-    adata.uns["echidna"]["save_data"]["dendrogram_cov"] = cov
-    cov_method = "cov" if cov else "corr"
+    metric = "smoothed" if metric is None else metric
+    adata.uns["echidna"]["save_data"]["dendrogram_metric"] = metric
     
     # If a threshold is set, use that threshold
     if threshold > 0.:
@@ -332,9 +366,13 @@ def echidna_clones(
     adata.uns["echidna"]["save_data"]["dendrogram_method"] = method
     
     if method == "elbow":
-        dn = eta_tree_elbow_thresholding(echidna.eta_ground_truth, method=cov_method)
+        dn = eta_tree_elbow_thresholding(
+            echidna.eta_ground_truth, similarity_metric=metric
+        )
     elif method == "cophenetic":
-        dn = eta_tree_cophenetic_thresholding(echidna.eta_ground_truth, method=cov_method)
+        dn = eta_tree_cophenetic_thresholding(
+            echidna.eta_ground_truth, similarity_metric=metric
+        )
     else:
         adata.uns["echidna"]["save_data"]["threshold"] = threshold
         if threshold == 0.:
@@ -342,7 +380,9 @@ def echidna_clones(
                 "If not using `elbow` or `cophenetic` method, "
                 "you must set `threshold` manually. Default `threshold=0`."
             )
-        dn = eta_tree(echidna.eta_ground_truth, method=cov_method, thres=threshold)
+        dn = eta_tree(
+            echidna.eta_ground_truth, similarity_metric=metric, thres=threshold
+        )
     
     assign_clones(dn, adata)
     logger.info(

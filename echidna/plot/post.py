@@ -5,7 +5,7 @@ import seaborn as sns
 import scanpy as sc
 import numpy as np
 import pandas as pd
-import logging, os
+import os
 
 from echidna.tools.eval import (
     eta_tree,
@@ -13,7 +13,7 @@ from echidna.tools.eval import (
     eta_tree_cophenetic_thresholding,
 )
 from echidna.tools.housekeeping import load_model
-from echidna.tools.infer_cnv import sort_chromosomes
+from echidna.tools.data import sort_chromosomes
 from echidna.plot.utils import save_figure, activate_plot_settings
 from echidna.utils import get_logger
 
@@ -68,6 +68,44 @@ def plot_cnv(adata, c: str=None, filename: str=None):
                 filename=None,
             )
         if filename: fig.savefig(filename, format="png")
+
+def plot_gmm_clusters(gmm, vals_filtered, gmm_mean, i):
+    fig, ax = plt.subplots(
+            nrows=1,
+            ncols=1, 
+            figsize=(10, 5)
+    )
+
+    x = np.linspace(-5, 10, 1000)
+    data = np.asarray(vals_filtered).squeeze()
+
+    sns.histplot(data, bins=30, stat='density', alpha=0.6, color='gray', ax=ax)
+
+    for mean, variance, weight in zip(gmm.means_, gmm.covariances_, gmm.weights_):
+        variance = np.sqrt(variance).flatten()
+        label = f'Component mean={mean[0]:.3f}'
+        color = 'red' if np.isclose(mean[0], gmm_mean, atol=0.1) else None
+        linewidth = 3 if color == 'red' else 1
+
+        ax.plot(
+            x,
+            weight * (1 / np.sqrt(2 * np.pi * variance)) * np.exp(-(x - mean) ** 2 / (2 * variance)),
+            label=f'Neutral mean = {gmm_mean:.3f}' if color else label,
+            color=color,
+            linewidth=linewidth
+        )
+
+    logprob = gmm.score_samples(x.reshape(-1, 1))
+    pdf = np.exp(logprob)
+    ax.plot(x, pdf, '-k', label='Global Density')
+
+    ax.set_xlabel('Eta values')
+    ax.set_ylabel('Density')
+    ax.set_title(f"Echidna Cluster {i}")
+    ax.legend()
+
+    plt.tight_layout()
+    plt.show()
 
 def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, filename=None):
     """Plot the CNV states along the genome.
@@ -139,13 +177,12 @@ def plot_loss(losses: list, label: str, log_loss: bool=False):
 
     plt.show()
 
-def dendrogram(adata, elbow: bool=False, filepath: str=None, **kwargs):
+def dendrogram(adata, elbow: bool=False, filepath: str=None):
     activate_plot_settings()
     echidna = load_model(adata)
     try:
         method = adata.uns["echidna"]["save_data"]["dendrogram_method"]
-        cov_bool = bool(adata.uns["echidna"]["save_data"]["dendrogram_cov"])
-        cov_method = "cov" if cov_bool else "corr"
+        metric = adata.uns["echidna"]["save_data"]["dendrogram_metric"]
     except Exception as e:
         logger.error(f"Must run `ec.tl.echidna_clones` first. {e}")
         return
@@ -156,20 +193,20 @@ def dendrogram(adata, elbow: bool=False, filepath: str=None, **kwargs):
     if method == "elbow":
         fig = eta_tree_elbow_thresholding(
             echidna.eta_ground_truth,
-            method=cov_method,
+            similarity_metric=metric,
             plot_dendrogram=not elbow,
             plot_elbow=elbow,
         )
     elif method == "cophenetic":
         fig = eta_tree_cophenetic_thresholding(
             echidna.eta_ground_truth,
-            method=cov_method,
+            similarity_metric=metric,
             plot_dendrogram=True,
         )
     else:
         fig = eta_tree(
             echidna.eta_ground_truth,
-            method=cov_method,
+            similarity_metric=metric,
             thres=adata.uns["echidna"]["save_data"]["threshold"],
             plot_dendrogram=True,
         )

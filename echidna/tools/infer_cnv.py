@@ -6,11 +6,15 @@ import numpy as np
 import pandas as pd
 import torch
 
-from scipy.stats import ttest_ind
+from scipy.stats import ttest_ind, mode
+from scipy.ndimage import gaussian_filter1d
 from hmmlearn import hmm
+from sklearn.mixture import GaussianMixture
 
 from echidna.tools.housekeeping import load_model
+from echidna.tools.data import filter_low_var_genes, sort_chromosomes
 from echidna.utils import get_logger, ECHIDNA_GLOBALS
+from echidna.plot.post import plot_gmm_clusters
 
 logger = get_logger(__name__)
 
@@ -53,6 +57,7 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
     eta = pd.DataFrame(eta).set_index(
         adata[:, adata.var["echidna_matched_genes"]].var.index
     )
+    
     eta.columns = [f"echidna_clone_{c}" for c in eta.columns]
     del echidna
     torch.cuda.empty_cache()
@@ -61,7 +66,16 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
         genome["band"] = genome["chrom"] + "_" + genome["band"]
     genome = sort_chromosomes(genome)
 
+    adata_filtered = filter_low_var_genes(adata.copy())
+    common_genes = adata_filtered.var.index.intersection(
+        eta.index
+    ).intersection(genome.loc[:, "geneName"])
+    eta_filtered = eta.reindex(genome[genome.loc[:, "geneName"].isin(common_genes)].loc[:, "geneName"])
+
     clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
+    neutral_states = get_neutral_state(eta_filtered, clone_cols, smooth=True, plot=False)
+
+    ## Decide later if we want to work on filtered smoothed eta or normal eta
     bands_eta_merge = genome.merge(
         eta, left_on="geneName",
         right_index=True,
@@ -72,18 +86,21 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
         bands_eta_merge[clone_cols] = bands_eta_merge[clone_cols].mul(
             bands_eta_merge["weight"], axis="index"
         )
+    
     bands_eta_means = bands_eta_merge.groupby("band")[clone_cols].mean()
     bands_eta_means = bands_eta_means.reindex(
         genome["band"].drop_duplicates()
     ).dropna()
 
-    chrom_counts = sort_chromosomes(
-        bands_eta_merge.groupby("chrom")["band"].nunique()
-    ).cumsum()
+    # chrom_counts = sort_chromosomes(
+    #     bands_eta_merge.groupby("chrom")["band"].nunique()
+    # ).cumsum()
+    # return bands_eta_means
     
     for c in clone_cols:
+        print(bands_eta_means.loc[:, c].values)
         bands_eta_means[f"states_{c}"] = _get_states(
-            bands_eta_means.loc[:, c].values, **kwargs
+            bands_eta_means.loc[:, c].values, neutral=neutral_states.loc[c, "neutral_value"].item(), **kwargs
         )
     
     infer_cnv_save_path = os.path.join(
@@ -98,28 +115,7 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
         "Added `.uns['echidna']['save_data']['infer_cnv']` : Path to CNV inference results."
     )
 
-def sort_chromosomes(df):
-    def chrom_key(chrom):
-        match = re.match(r"chr(\d+|X|Y)", chrom)
-        if match:
-            chrom = match.group(1)
-            if chrom == "X":
-                return (float("inf"), 1)  # X at the end but before Y
-            elif chrom == "Y":
-                return (float("inf"), 2)  # Y at the end
-            else:
-                return (int(chrom), 0)
-        return (float("inf"), 3)  # Any unexpected value goes at the very end
-    if isinstance(df, pd.DataFrame):
-        df = df.copy()
-        df["chrom_key"] = df["chrom"].apply(chrom_key)
-        df_sorted = df.sort_values(by=["chrom_key", "bandStart", "txStart"]).drop(columns="chrom_key")
-        return df_sorted
-    elif isinstance(df, pd.Series):
-        sorted_index = sorted(df.index, key=chrom_key)
-        return df[sorted_index]    
-
-def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transmat_prior=1, startprob_prior=1, verbose=False):
+def _get_states(vals, n_components=3, p_thresh=1e-5, neutral=2, transmat_prior=1, startprob_prior=1, verbose=False):
     """Implements a gaussian hmm to call copy number states smoothing along the genome
     
     Parameters
@@ -146,9 +142,9 @@ def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transmat_prior=1
             transmat_prior=transmat_prior,
             startprob_prior=startprob_prior,
         )
-        model.fit(vals[:, None])
+        model.fit(vals.reshape(-1, 1))
         models.append(model)
-        scores.append(model.score(vals[:, None]))
+        scores.append(model.score(vals.reshape(-1, 1)))
         if verbose:
             logger.info(
                 f"Converged: {model.monitor_.converged}\t\tScore: {scores[-1]}"
@@ -162,14 +158,11 @@ def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transmat_prior=1
             "and {model.n_components} components"
         )
     
-    # Predict the most likely sequence of states given the model
     states = model.predict(vals[:, None])
 
-    # Determine which state corresponds to which CN states
     tmp = pd.DataFrame({"vals": vals, "states": states})
     state_dict = tmp.groupby("states")["vals"].mean().reset_index()
-    
-    # Determine the state that is neutral (closest to 2)
+
     state_dict["sq_dist_to_neut"] = (state_dict["vals"] - neutral)**2
     state_dict["dist_to_neut"] = state_dict["vals"] - neutral
     state_dict = state_dict.sort_values(by="sq_dist_to_neut")
@@ -204,6 +197,30 @@ def _get_states(vals, n_components=5, p_thresh=1e-5, neutral=2, transmat_prior=1
     cnvs = list(map(state_map.get, states))
 
     return cnvs
+
+def get_neutral_state(eta_filtered, eta_column_labels, smooth=True, plot=False):
+    if smooth:
+        eta_filtered = gaussian_filter1d(
+    		eta_filtered, sigma=10, axis=0, radius=20
+        )
+    gmm_means_df = pd.DataFrame(columns=["eta_column_label", "neutral_value"])
+    
+    for i, col in enumerate(eta_column_labels):
+        cur_vals_filtered = eta_filtered[:, i].reshape(-1,1)
+        gmm = GaussianMixture(n_components=5).fit(cur_vals_filtered)
+        labels = gmm.predict(cur_vals_filtered)
+        neut_component = mode(labels).mode
+        
+        gmm_mean = np.mean(cur_vals_filtered[labels == neut_component])
+
+        if plot:
+            plot_gmm_clusters(
+                gmm, cur_vals_filtered, gmm_mean, i
+            )
+
+        gmm_means_df.loc[i, :] = [col, gmm_mean]
+
+    return gmm_means_df.set_index("eta_column_label")
 
 def genes_to_bands(genes, cytobands):
     spanning_genes = []

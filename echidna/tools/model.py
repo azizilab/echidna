@@ -6,12 +6,10 @@ import pyro
 import pyro.poutine as poutine
 from pyro import distributions as dist
 import torch.nn.functional as F
-from pyro.distributions import *
 
 import torch
 
 from echidna.tools.custom_dist import TruncatedNormal
-# from echidna.tools.train import Trainer
 from echidna.tools.utils import EchidnaConfig
 
 class Echidna:
@@ -87,7 +85,7 @@ class Echidna:
             ).sample([self.config.num_genes])
         )
 
-        q_c_shape = pyro.param('c_shape', torch.ones(1, self.config.num_genes), constraint=constraints.positive)
+        q_c_shape = pyro.param('c_shape', torch.ones(1, self.config.num_genes), constraint=dist.constraints.positive)
 
         shape = pyro.param('scale_shape', self.config.q_shape_rate_scaler * torch.ones(self.config.num_clusters),
                            constraint=dist.constraints.positive)
@@ -167,10 +165,10 @@ class Echidna:
         q_eta_mean = pyro.param('eta_mean',
                           lambda:dist.MultivariateNormal(torch.ones(num_clusters) * self.config.eta_mean_init,
                                                          torch.eye(num_clusters)).sample([num_genes]))
-        q_c_shape = pyro.param('c_shape', torch.ones(num_timepoints, 1, num_genes), constraint=constraints.positive)
+        q_c_shape = pyro.param('c_shape', torch.ones(num_timepoints, 1, num_genes), constraint=dist.constraints.positive)
 
-        shape = pyro.param('scale_shape', self.config.q_shape_rate_scaler * torch.ones(num_clusters), constraint=constraints.positive)
-        rate = pyro.param('scale_rate', self.config.q_shape_rate_scaler * torch.ones(num_clusters), constraint=constraints.positive)
+        shape = pyro.param('scale_shape', self.config.q_shape_rate_scaler * torch.ones(num_clusters), constraint=dist.constraints.positive)
+        rate = pyro.param('scale_rate', self.config.q_shape_rate_scaler * torch.ones(num_clusters), constraint=dist.constraints.positive)
         q_clone_var = dist.Gamma(shape, rate).to_event(1)
         q_scale = pyro.sample('scale', q_clone_var)
 

@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import pandas as pd
 import scanpy as sc
-import warnings
+import warnings, requests, json, re
 
 from echidna.tools.utils import EchidnaConfig, _custom_sort
 from echidna.utils import get_logger
@@ -88,8 +88,6 @@ def pre_process(
     sc.pp.neighbors(adata, random_state=1, n_neighbors=n_neighbors)
     sc.tl.umap(adata, random_state=1)
 
-    logger.info("Done processing.")
-
     for sparse_mtx in adata.obsp:
         adata.obsp[sparse_mtx] = csr_matrix(adata.obsp[sparse_mtx])
     if filepath is not None:
@@ -98,9 +96,14 @@ def pre_process(
 
 def filter_low_var_genes(
     adata: sc.AnnData,
-    var_threshold: float=0.01
+    quantile: float=0.75
 ) -> sc.AnnData:
-    gene_filter = adata.X.var(axis=0) > var_threshold
+    gene_variances = adata.X.var(axis=0)
+    var_threshold = np.quantile(gene_variances, quantile)
+    gene_filter = gene_variances > var_threshold
+    
+    # gene_filter = (adata.X.var(axis=0) / (adata.X.mean(axis=0) + 1e-8)) > var_threshold
+    
     return adata[:, gene_filter]
 
 def train_val_split(adata, config):
@@ -239,3 +242,114 @@ def build_torch_tensors(adata, config):
         pi_obs, z_obs = create_z_pi(adata, config)
         return X_obs, W_obs, pi_obs, z_obs
     return X_obs, W_obs
+
+def fetch_genome():
+    genes = pd.read_csv(
+        "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/wgEncodeGencodeCompV46.txt.gz",
+        delimiter="\t",
+        header=None,
+        names=["gene_id", "transcript_id", "chrom", "strand", "txStart", "txEnd", "cdsStart", "cdsEnd", "exonCount", "exonStarts", "exonEnds", "score", "geneName", "cdsStartStat", "cdsEndStat", "exonFrames"],
+    )
+    genes = genes[["chrom", "geneName", "txStart", "txEnd"]].drop_duplicates()
+    genes_gb = genes.groupby(["chrom", "geneName"])
+    min_tx = genes_gb.min()["txStart"].reset_index()
+    max_tx = genes_gb.max()["txEnd"].reset_index()
+    gene_coords = min_tx.merge(max_tx, on=["chrom", "geneName"])
+    
+    ensembl_to_gene_name = ensembl_conversion(list(gene_coords[gene_coords.geneName.str.startswith("ENS")].geneName))
+    if ensembl_to_gene_name:
+        def map_gene_names(row, mapping):
+            new_name = mapping.get(row['geneName'], None)
+            return new_name if new_name is not None else row["geneName"]
+
+        gene_coords["geneName"] = gene_coords.apply(lambda row: map_gene_names(row, ensembl_to_gene_name), axis=1)
+    
+    return sort_chromosomes(gene_coords)
+
+def ensembl_conversion(ensembl_genes):
+    response = requests.post(
+        "https://biotools.fr/mouse/ensembl_symbol_converter/",
+        data={
+            'api': 1,
+            'ids': json.dumps(ensembl_genes)
+        },
+    )
+    if response.status_code == 200:
+        output = response.json()
+    else:
+        logger.error(f"Request failed with status code: {response.status_code}")
+        return
+    return output
+
+def range_subset_pct(
+    gene_range, chrom_region
+):
+    start, end = gene_range
+    chrom_start, chrom_end = chrom_region
+    overlap = max(0, min(end, chrom_end) - max(start, chrom_start))
+    return overlap / (end - start) if (end - start) > 0 else 0
+
+def range_subset(
+    gene_range, chrom_region
+):
+    start, end = gene_range
+    chrom_start, chrom_end = chrom_region
+    return 1 if start >= chrom_start and end <= chrom_end else 0
+
+def sort_chromosomes(df):
+    def chrom_key(chrom):
+        match = re.match(r"chr(\d+|X|Y)", chrom)
+        if match:
+            chrom = match.group(1)
+            if chrom == "X":
+                return (float("inf"), 1)  # X at the end but before Y
+            elif chrom == "Y":
+                return (float("inf"), 2)  # Y at the end
+            else:
+                return (int(chrom), 0)
+        return (float("inf"), 3)  # Any unexpected value goes at the very end
+    if isinstance(df, pd.DataFrame):
+        df = df.copy()
+        df["chrom_key"] = df["chrom"].apply(chrom_key)
+        sort_cols = np.intersect1d(["bandStart", "txStart"], df.columns)
+        df_sorted = df.sort_values(by=["chrom_key"] + list(sort_cols)).drop(columns="chrom_key")
+        return df_sorted
+    elif isinstance(df, pd.Series):
+        sorted_index = sorted(df.index, key=chrom_key)
+        return df[sorted_index]
+
+def get_w(
+    ichor: pd.DataFrame,
+    genome: pd.DataFrame,
+    timepoint: str,
+    verbose: bool=False,
+    chrom_label: str="chrom",
+    gene_start: str="txStart",
+    gene_end: str="txEnd",
+    gene_name: str="geneName",
+    weighted: bool=True,
+):
+    w = []
+    genome = genome.drop_duplicates()
+    ichor["chr"] = ichor["chr"].apply(lambda x: x if x.startswith("chr") else "chr" + x)
+    
+    func = range_subset_pct if weighted else range_subset
+    
+    seen = defaultdict(float)
+    for _, cn_row in ichor.iterrows():
+
+        chrom = genome[genome[chrom_label].astype(str) == cn_row["chr"]]
+        chrom_region = (cn_row.start, cn_row.end)
+        
+        if verbose: print(f"------- Matching chromosome {cn_row.chr} and range {chrom_region}...")
+        for _, gene in chrom.iterrows():
+            gene_range = (gene[gene_start], gene[gene_end])
+            pct = func(gene_range, chrom_region)
+            
+            if gene[gene_name] not in seen:
+                seen[gene[gene_name]] = pct * cn_row["copy.number"]
+            else:
+                seen[gene[gene_name]] += pct * cn_row["copy.number"]
+
+    W = pd.DataFrame({"geneName": list(seen.keys()), f"{timepoint}_count": list(seen.values())})
+    return W

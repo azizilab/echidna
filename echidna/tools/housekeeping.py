@@ -5,8 +5,6 @@ import logging
 import os, gc
 
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
 import torch
 import torch.nn.functional as F
@@ -14,7 +12,6 @@ import torch.nn.functional as F
 import pyro
 import pyro.distributions as dist
 
-from echidna.tools.custom_dist import TruncatedNormal
 from echidna.tools.utils import EchidnaConfig
 from echidna.tools.model import Echidna
 from echidna.utils import (
@@ -164,13 +161,13 @@ def load_model(adata, simulation=False):
     save_folder = ECHIDNA_GLOBALS["save_folder"]
     full_path = os.path.join(save_folder, model_run_id)
     
-    model = torch.load(os.path.join(full_path, "echidna_model.pt"))
+    model = torch.load(os.path.join(full_path, "echidna_model.pt"), weights_only=False)
     
     pyro.clear_param_store()
     gc.collect()
     torch.cuda.empty_cache()
     param_store = pyro.get_param_store()
-    param_dict = torch.load(os.path.join(full_path, "echidna_model_param_store.pt"))
+    param_dict = torch.load(os.path.join(full_path, "echidna_model_param_store.pt"), weights_only=False)
     for name, param in param_dict.items():
         if name in param_store:
             param_store[name] = param.to(model.config.device)
