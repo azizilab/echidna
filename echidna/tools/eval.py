@@ -18,7 +18,7 @@ import pyro.distributions as dist
 from echidna.tools.custom_dist import TruncatedNormal
 from echidna.tools.housekeeping import load_model
 from echidna.tools.utils import _custom_sort
-from echidna.tools.data import create_z_pi
+from echidna.tools.data import create_z_pi, filter_low_var_genes
 from echidna.utils import get_logger
 
 logger = get_logger(__name__)
@@ -348,7 +348,7 @@ def assign_clones(dn, adata):
             index=adata.obs.index,
             dtype="category",
         )
-
+        
 def echidna_clones(
     adata,
     method: str="elbow",

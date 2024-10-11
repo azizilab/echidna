@@ -53,20 +53,39 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         )  
     elif c == "all":
         num_clusters = adata.obs[adata.uns["echidna"]["config"]["clusters"]].nunique()
-        fig, axes = plt.subplots(num_clusters, 1, figsize=(25, 7 * num_clusters))
 
-        for i in range(num_clusters):
-            vals = band_means_states.loc[:, f"echidna_clone_{i}"]
-            states = band_means_states.loc[:, f"states_echidna_clone_{i}"]
-            _plot_cnv_helper(
-                vals,
-                states,
-                chrom_counts.values,
-                chrom_counts.index,
-                ax=axes[i],
-                title=f"Echidna Clone {i} CNV",
-                filename=None,
-            )
+        fig, ax = plt.subplots(figsize=(20,5), nrows=1, ncols=1)
+        
+        band_means_states = band_means_states[
+            [f"echidna_clone_{i}" for i in range(num_clusters)]
+        ]
+        band_means_states.columns = [f"{i}" for i in range(num_clusters)]
+        sns.heatmap(band_means_states.T, cmap="bwr", ax=ax)
+        
+        # Set the x-axis ticks and labels
+        ticks = [(chrom_counts[i-1] + chrom_counts[i])/2 if i != 0 else chrom_counts[i]/2 for i in range(len(chrom_counts))]
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(chrom_counts.index, rotation=30)
+
+        # Draw vertical lines at each chromosome boundary
+        for x in chrom_counts:
+            ax.axvline(x=x, color="k", linestyle="--", linewidth=1.5)
+         
+        # fig, axes = plt.subplots(num_clusters, 1, figsize=(25, 7 * num_clusters))
+
+        # for i in range(num_clusters):
+        #     vals = band_means_states.loc[:, f"echidna_clone_{i}"]
+        #     states = band_means_states.loc[:, f"states_echidna_clone_{i}"]
+        #     _plot_cnv_helper(
+        #         vals,
+        #         states,
+        #         chrom_counts.values,
+        #         chrom_counts.index,
+        #         ax=axes[i],
+        #         title=f"Echidna Clone {i} CNV",
+        #         filename=None,
+        #     )
+        
         if filename: fig.savefig(filename, format="png")
 
 def plot_gmm_clusters(gmm, vals_filtered, gmm_mean, i):

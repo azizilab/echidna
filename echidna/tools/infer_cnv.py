@@ -2,9 +2,11 @@
 
 import logging, os, re, sys
 
+import scanpy as sc
 import numpy as np
 import pandas as pd
 import torch
+import pyro
 
 from scipy.stats import ttest_ind, mode
 from scipy.ndimage import gaussian_filter1d
@@ -13,12 +15,13 @@ from sklearn.mixture import GaussianMixture
 
 from echidna.tools.housekeeping import load_model
 from echidna.tools.data import filter_low_var_genes, sort_chromosomes
+from echidna.tools.eval import sample
 from echidna.utils import get_logger, ECHIDNA_GLOBALS
 from echidna.plot.post import plot_gmm_clusters
 
 logger = get_logger(__name__)
 
-def cnv_results(adata):
+def cnv_results(adata: sc.AnnData) -> pd.DataFrame:
     infer_cnv_save_path = None
     if "infer_cnv" not in adata.uns["echidna"]["save_data"]:
         raise ValueError(
@@ -32,7 +35,16 @@ def cnv_results(adata):
     
     return pd.read_csv(infer_cnv_save_path)
 
-def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
+def infer_cnv(
+    adata: sc.AnnData,
+    genome: pd.DataFrame=None,
+    gaussian_smoothing: bool=True,
+    filter_genes: bool=False,
+    filter_quantile: float=.7,
+    smoother_sigma: float=6,
+    smoother_radius: float=8,
+    **kwargs,
+) -> None:
     if genome is None:
         try:
             genome = pd.read_csv(
@@ -49,33 +61,50 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
             )
             logger.error(e)
             raise IOError("Must enable internet connection to fetch default genome data.")
-    echidna = load_model(adata)
-    eta = echidna.eta_ground_truth
-    # normalize out variance of each gene from eta
-    eta = eta / torch.sqrt(torch.diag(torch.cov(eta.T)))
-    eta = eta.T.detach().cpu().numpy()
-    eta = pd.DataFrame(eta).set_index(
-        adata[:, adata.var["echidna_matched_genes"]].var.index
-    )
-    
-    eta.columns = [f"echidna_clone_{c}" for c in eta.columns]
-    del echidna
-    torch.cuda.empty_cache()
     
     if "chr" not in genome["band"].iloc[0]:
         genome["band"] = genome["chrom"] + "_" + genome["band"]
     genome = sort_chromosomes(genome)
-
-    adata_filtered = filter_low_var_genes(adata.copy())
+    
+    echidna = load_model(adata)
+    eta = echidna.eta_ground_truth
+    
+    del echidna
+    torch.cuda.empty_cache()
+    
+    echidna_matched_genes = adata[:, adata.var["echidna_matched_genes"]].var.index
+    
+    eta = eta.T.detach().cpu().numpy()
+    eta = pd.DataFrame(eta).set_index(echidna_matched_genes)
+    clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
+    eta.columns = clone_cols
+    
+    adata_filtered = filter_low_var_genes(adata.copy(), quantile=filter_quantile)
     common_genes = adata_filtered.var.index.intersection(
         eta.index
     ).intersection(genome.loc[:, "geneName"])
-    eta_filtered = eta.reindex(genome[genome.loc[:, "geneName"].isin(common_genes)].loc[:, "geneName"])
+    genome_unique = genome.drop_duplicates(subset="geneName")
+    eta_filtered = eta.reindex(
+        genome_unique[genome_unique.loc[:, "geneName"].isin(common_genes)].loc[:, "geneName"]
+    )
+    
+    # GMM gets eta filtered for genes and gaussian smoothed
+    eta_filtered_smooth = gaussian_filter1d(
+        eta_filtered, sigma=smoother_sigma, axis=0, radius=smoother_radius
+    )
+    neutral_states = get_neutral_state(eta_filtered_smooth, clone_cols, **kwargs)
+    
+    # User has choice for HMM on filtering genes and gaussian smoothing
+    if filter_genes:
+        eta = eta_filtered
+    if gaussian_smoothing:
+        eta.values[:] = gaussian_filter1d(
+            eta, sigma=smoother_sigma, axis=0, radius=smoother_radius
+        )
 
-    clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
-    neutral_states = get_neutral_state(eta_filtered, clone_cols, smooth=True, plot=False)
+    # OLD - normalize out variance of each gene from eta
+    # eta = eta / torch.sqrt(torch.diag(torch.cov(eta.T)))
 
-    ## Decide later if we want to work on filtered smoothed eta or normal eta
     bands_eta_merge = genome.merge(
         eta, left_on="geneName",
         right_index=True,
@@ -92,20 +121,21 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
         genome["band"].drop_duplicates()
     ).dropna()
 
-    # chrom_counts = sort_chromosomes(
-    #     bands_eta_merge.groupby("chrom")["band"].nunique()
-    # ).cumsum()
-    # return bands_eta_means
-    
     for c in clone_cols:
-        print(bands_eta_means.loc[:, c].values)
         bands_eta_means[f"states_{c}"] = _get_states(
-            bands_eta_means.loc[:, c].values, neutral=neutral_states.loc[c, "neutral_value"].item(), **kwargs
+            bands_eta_means.loc[:, c].values,
+            neutral_mean=neutral_states.loc[c, "neutral_value_mean"].item(),
+            neutral_std=neutral_states.loc[c, "neutral_value_std"].item(),
+            **kwargs
         )
-    
+        bands_eta_means[c] -= neutral_states.loc[c, "neutral_value_mean"].item()
+
     infer_cnv_save_path = os.path.join(
-        ECHIDNA_GLOBALS["save_folder"], "_echidna_cnv.csv"
+        ECHIDNA_GLOBALS["save_folder"],
+        adata.uns["echidna"]["run_id"],
+        "_echidna_cnv.csv",
     )
+    
     bands_eta_means.to_csv(
         infer_cnv_save_path,
         index=True,
@@ -115,8 +145,18 @@ def infer_cnv(adata, genome: pd.DataFrame=None, **kwargs):
         "Added `.uns['echidna']['save_data']['infer_cnv']` : Path to CNV inference results."
     )
 
-def _get_states(vals, n_components=3, p_thresh=1e-5, neutral=2, transmat_prior=1, startprob_prior=1, verbose=False):
-    """Implements a gaussian hmm to call copy number states smoothing along the genome
+def _get_states(
+    vals,
+    n_components=5,
+    p_thresh=1e-5,
+    neutral_mean=2,
+    neutral_std=1,
+    transmat_prior=1,
+    startprob_prior=1,
+    verbose=False,
+    **args,
+) -> list:
+    """Implements a Gaussian HMM to call copy number states smoothing along the genome
     
     Parameters
     ----------
@@ -134,11 +174,11 @@ def _get_states(vals, n_components=3, p_thresh=1e-5, neutral=2, transmat_prior=1
     models = []
 
     idx = np.random.choice(range(100), size=10)
-    for i in range(10): 
+    for i in range(10):
         model = hmm.GaussianHMM(
             n_components=n_components,
             random_state=idx[i],
-            n_iter=100,
+            n_iter=150,
             transmat_prior=transmat_prior,
             startprob_prior=startprob_prior,
         )
@@ -162,34 +202,36 @@ def _get_states(vals, n_components=3, p_thresh=1e-5, neutral=2, transmat_prior=1
 
     tmp = pd.DataFrame({"vals": vals, "states": states})
     state_dict = tmp.groupby("states")["vals"].mean().reset_index()
-
-    state_dict["sq_dist_to_neut"] = (state_dict["vals"] - neutral)**2
-    state_dict["dist_to_neut"] = state_dict["vals"] - neutral
-    state_dict = state_dict.sort_values(by="sq_dist_to_neut")
+    # display(state_dict)
+    # state_dict["sq_dist_to_neut"] = (state_dict["vals"] - neutral)**2
+    # state_dict["dist_to_neut"] = state_dict["vals"] - neutral
+    # state_dict = state_dict.sort_values(by="sq_dist_to_neut")
+    n_stddevs = 3
+    state_dict["neutral"] = abs(state_dict["vals"] - neutral_mean) <= n_stddevs * neutral_std
+    state_dict["amp"] = state_dict["vals"] - neutral_mean > n_stddevs * neutral_std
+    state_dict["del"] = state_dict["vals"] - neutral_mean < -n_stddevs * neutral_std
 
     # Check if any other states are neutral using a t-test
-    neutral_state = [state_dict.iloc[0]["states"]]
-    neutral_val = [state_dict.iloc[0]["vals"]]
-    neutral_dist = tmp[tmp["states"] == neutral_state[0]]["vals"]
+    # neutral_state = [state_dict.iloc[0]["states"]]
+    # neutral_val = [state_dict.iloc[0]["vals"]]
+    # neutral_dist = tmp[tmp["states"] == neutral_state[0]]["vals"]
 
-    for i, row in state_dict.iterrows():
-        if row["states"] not in neutral_state:
-            tmp_dist = tmp[tmp["states"] == row["states"]]["vals"]
-            p_val = ttest_ind(neutral_dist, tmp_dist)[1]
-            if p_val > p_thresh:
-                neutral_state.append(row["states"])
-                neutral_val.append(row["vals"])
+    # for i, row in state_dict.iterrows():
+    #     if row["states"] not in neutral_state:
+    #         tmp_dist = tmp[tmp["states"] == row["states"]]["vals"]
+    #         p_val = ttest_ind(neutral_dist, tmp_dist).pvalue
+    #         if p_val > p_thresh:
+    #             neutral_state.append(row["states"])
+    #             neutral_val.append(row["vals"])
     
-    # Create a function to classify the states
+    # amp if CN > netural, del if less than
     def classify_state(row):
-        if row["states"] in neutral_state:
+        if row["neutral"] is True:
             return "neut"
-        elif row["vals"] > max(neutral_val):
+        elif row["amp"] is True:
             return "amp"
-        else:
+        elif row["del"] is True:
             return "del"
-    
-    # Apply the classification function
     state_dict["CNV"] = state_dict.apply(classify_state, axis=1)
     
     # Map the CNV states back to the original states
@@ -198,29 +240,114 @@ def _get_states(vals, n_components=3, p_thresh=1e-5, neutral=2, transmat_prior=1
 
     return cnvs
 
-def get_neutral_state(eta_filtered, eta_column_labels, smooth=True, plot=False):
-    if smooth:
-        eta_filtered = gaussian_filter1d(
-    		eta_filtered, sigma=10, axis=0, radius=20
-        )
-    gmm_means_df = pd.DataFrame(columns=["eta_column_label", "neutral_value"])
+def get_neutral_state(
+    eta_filtered_smooth,
+    eta_column_labels,
+    n_gmm_components=5,
+    plot_gmm=False,
+    **args,
+) -> pd.DataFrame:
+    gmm_means_df = pd.DataFrame(columns=["eta_column_label", "mode", "neutral_value_mean", "neutral_value_std"])
     
     for i, col in enumerate(eta_column_labels):
-        cur_vals_filtered = eta_filtered[:, i].reshape(-1,1)
-        gmm = GaussianMixture(n_components=5).fit(cur_vals_filtered)
+        cur_vals_filtered = eta_filtered_smooth[:, i].reshape(-1,1)
+        gmm = GaussianMixture(n_components=n_gmm_components).fit(cur_vals_filtered)
         labels = gmm.predict(cur_vals_filtered)
-        neut_component = mode(labels).mode
-        
-        gmm_mean = np.mean(cur_vals_filtered[labels == neut_component])
+        neut_component = mode(labels, keepdims=False).mode
 
-        if plot:
+        gmm_mean = np.mean(cur_vals_filtered[labels == neut_component])
+        gmm_std = np.std(cur_vals_filtered[labels == neut_component])
+
+        if plot_gmm:
             plot_gmm_clusters(
                 gmm, cur_vals_filtered, gmm_mean, i
             )
 
-        gmm_means_df.loc[i, :] = [col, gmm_mean]
+        gmm_means_df.loc[i, :] = [col, neut_component, gmm_mean, gmm_std]
 
     return gmm_means_df.set_index("eta_column_label")
+
+def gene_dosage_effect(eta_samples, eta_mean, eta_mode, cluster_idx, c_shape, timepoint_idx):
+    # delta Var(c|eta)
+    # delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - c_shape[:, timepoint_idx]*eta_mode**2
+    delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - \
+		c_shape[:, timepoint_idx]*eta_mode[None, cluster_idx]**2
+
+    # Var(E[c|eta])
+    exp_c_given_eta = c_shape[None, :, timepoint_idx] * \
+        eta_samples[:, :, cluster_idx]
+        
+    var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=0)
+    # E[Var(c|eta)]
+    exp_var_c_given_eta = c_shape[None, :,timepoint_idx] * eta_samples[:, :, cluster_idx]**2
+    exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=0)
+
+    # (Var(c|eta)-Var(c|eta_mode))/(Var(E[c|eta])+E[Var(c|eta)])
+    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)
+
+    return var_exp
+
+def gene_dosage_effect(
+    adata,
+    smoother_sigma: float=6,
+    smoother_radius: float=8,
+    filter_quantile: float=.7,
+    n_gmm_components: int=5,
+    **kwargs
+):
+    """
+    eta_mode [n_clusters, 1]
+    eta_samples, eta_mean [n_genes, n_clusters]
+    c_shape  [n_genes, n_timepoints]
+    """
+    model = load_model(adata)
+
+    adata_filtered = filter_low_var_genes(
+        adata.copy(), quantile=filter_quantile
+    )
+    
+    echidna_matched_genes = adata[
+        :, adata.var["echidna_matched_genes"]
+    ].var.index
+    
+    eta = pd.DataFrame(
+        model.eta_ground_truth.T.cpu().detach().numpy(),
+        index=echidna_matched_genes,
+    )
+    echidna_matched_genes = echidna_matched_genes.intersection(adata_filtered.var.index)
+    
+    eta = eta.reindex(echidna_matched_genes)
+    clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
+
+    eta_filtered_smooth = gaussian_filter1d(
+        eta, sigma=smoother_sigma, axis=0, radius=smoother_radius
+    )
+    eta_mode = get_neutral_state(
+        eta_filtered_smooth, clone_cols, n_gmm_components
+    )["mode"].values.reshape(-1,1)
+    
+    eta_samples = sample(adata, "eta").cpu().detach().numpy()
+    c_shape = pyro.param("c_shape").cpu().detach().numpy()
+    eta_mean = pyro.param("eta_mean").cpu().detach().numpy()
+    
+    print(eta_mode) # (12, 1)
+    print(eta_samples.shape) # (17735, 12)
+    print(c_shape.shape) # (n_timepoints, 17735)
+    print(eta_mean.shape) # (17735, 12)
+    
+    # delta Var(c|eta)
+    delta_var = (c_shape * eta_mean**2) - (c_shape * eta_mode**2)
+
+    # Var(E[c|eta])
+    exp_c_given_eta = c_shape.T[..., None] * eta_samples[..., None]  # Broadcasting to [n_genes, n_clusters, 1]
+    var_exp_c_given_eta = np.var(exp_c_given_eta, axis=0)
+
+    # E[Var(c|eta)]
+    exp_var_c_given_eta = c_shape.T[..., None] * eta_samples[..., None]**2
+    exp_var_c_given_eta = np.mean(exp_var_c_given_eta, axis=0)
+
+    # (Var(c|eta) - Var(c|eta_mode)) / (Var(E[c|eta]) + E[Var(c|eta)])
+    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)
 
 def genes_to_bands(genes, cytobands):
     spanning_genes = []
@@ -255,5 +382,5 @@ def genes_to_bands(genes, cytobands):
                 ))
         del bands
     genome = pd.DataFrame(spanning_genes, columns=["chrom", "band", "bandStart", "bandEnd", "geneName", "txStart", "txEnd", "weight"])
+    
     return genome.drop_duplicates(["chrom", "band", "geneName"])
-
