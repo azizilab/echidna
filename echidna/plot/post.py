@@ -29,20 +29,20 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         raise ValueError(
             "Saved results not found. Run `ec.tl.infer_cnv` first."
         )
-    
-    band_means_states = pd.read_csv(file_save_path)
-    
-    band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
+
+    # band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
+    eta_genome_merge = pd.read_csv(file_save_path)
     chrom_counts = sort_chromosomes(
-        band_means_states.groupby("chrom")["band"].nunique()
+        eta_genome_merge.groupby("chrom")["geneName"].nunique()
     ).cumsum()
     
     activate_plot_settings()
     if c != "all":
-        if f"echidna_clone_{c}" not in band_means_states.columns:
-            raise ValueError(f"Specified cluster `{c}` not found.")
-        vals = band_means_states.loc[:, f"echidna_clone_{c}"]
-        states = band_means_states.loc[:, f"states_echidna_clone_{c}"]
+
+        if f"echidna_clone_{c}" not in eta_genome_merge.columns:
+            raise ValueError(f"Specified cluster `echidna_clone_{c}` not found.")
+        vals = eta_genome_merge.loc[:, f"echidna_clone_{c}"]
+        states = eta_genome_merge.loc[:, f"states_echidna_clone_{c}"]
         _plot_cnv_helper(
             vals,
             states,
@@ -56,11 +56,11 @@ def plot_cnv(adata, c: str=None, filename: str=None):
 
         fig, ax = plt.subplots(figsize=(20,5), nrows=1, ncols=1)
         
-        band_means_states = band_means_states[
+        eta_genome_merge = eta_genome_merge[
             [f"echidna_clone_{i}" for i in range(num_clusters)]
         ]
-        band_means_states.columns = [f"{i}" for i in range(num_clusters)]
-        sns.heatmap(band_means_states.T, cmap="bwr", ax=ax)
+        eta_genome_merge.columns = [f"{i}" for i in range(num_clusters)]
+        sns.heatmap(eta_genome_merge.T, cmap="bwr", ax=ax, vmin=-2, vmax=2)
         
         # Set the x-axis ticks and labels
         ticks = [(chrom_counts[i-1] + chrom_counts[i])/2 if i != 0 else chrom_counts[i]/2 for i in range(len(chrom_counts))]
@@ -87,6 +87,9 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         #     )
         
         if filename: fig.savefig(filename, format="png")
+
+def plot_gene_dosage(adata, filename: str=None):
+    return
 
 def plot_gmm_clusters(gmm, vals_filtered, gmm_mean, i):
     fig, ax = plt.subplots(
@@ -156,8 +159,8 @@ def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, fi
     if ax is None:
         fig, ax = plt.subplots(figsize=(25, 5))
     
-    for i, row in df.iterrows():
-        ax.axvline(x=row["x"], color=row["color"], linestyle="-", alpha=0.3, linewidth=1)
+    # for i, row in df.iterrows():
+        # ax.axvline(x=row["x"], color=row["color"], linestyle="-", alpha=0.3, linewidth=1)
     
     sns.scatterplot(x="x", y="vals", hue="states", palette=color_map, data=df, legend=False, s=80, ax=ax)
     

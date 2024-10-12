@@ -39,7 +39,7 @@ def infer_cnv(
     adata: sc.AnnData,
     genome: pd.DataFrame=None,
     gaussian_smoothing: bool=True,
-    filter_genes: bool=False,
+    filter_genes: bool=True,
     filter_quantile: float=.7,
     smoother_sigma: float=6,
     smoother_radius: float=8,
@@ -105,30 +105,30 @@ def infer_cnv(
     # OLD - normalize out variance of each gene from eta
     # eta = eta / torch.sqrt(torch.diag(torch.cov(eta.T)))
 
-    bands_eta_merge = genome.merge(
+    eta_genome_merge = genome[["geneName", "chrom"]].merge(
         eta, left_on="geneName",
         right_index=True,
         how="inner",
         validate="many_to_one",
     )
-    if "weight" in genome.columns:
-        bands_eta_merge[clone_cols] = bands_eta_merge[clone_cols].mul(
-            bands_eta_merge["weight"], axis="index"
-        )
+    # if "weight" in genome.columns:
+    #     bands_eta_merge[clone_cols] = bands_eta_merge[clone_cols].mul(
+    #         bands_eta_merge["weight"], axis="index"
+    #     )
     
-    bands_eta_means = bands_eta_merge.groupby("band")[clone_cols].mean()
-    bands_eta_means = bands_eta_means.reindex(
-        genome["band"].drop_duplicates()
-    ).dropna()
-
+    # bands_eta_means = bands_eta_merge.groupby("band")[clone_cols].mean()
+    # bands_eta_means = bands_eta_means.reindex(
+        # genome["band"].drop_duplicates()
+    # ).dropna()
+    
     for c in clone_cols:
-        bands_eta_means[f"states_{c}"] = _get_states(
-            bands_eta_means.loc[:, c].values,
+        eta_genome_merge[f"states_{c}"] = _get_states(
+            eta_genome_merge.loc[:, c].values,
             neutral_mean=neutral_states.loc[c, "neutral_value_mean"].item(),
             neutral_std=neutral_states.loc[c, "neutral_value_std"].item(),
             **kwargs
         )
-        bands_eta_means[c] -= neutral_states.loc[c, "neutral_value_mean"].item()
+        eta_genome_merge[c] -= neutral_states.loc[c, "neutral_value_mean"].item()
 
     infer_cnv_save_path = os.path.join(
         ECHIDNA_GLOBALS["save_folder"],
@@ -136,9 +136,9 @@ def infer_cnv(
         "_echidna_cnv.csv",
     )
     
-    bands_eta_means.to_csv(
+    eta_genome_merge.to_csv(
         infer_cnv_save_path,
-        index=True,
+        index=False,
     )
     adata.uns["echidna"]["save_data"]["infer_cnv"] = infer_cnv_save_path
     logger.info(
@@ -148,7 +148,6 @@ def infer_cnv(
 def _get_states(
     vals,
     n_components=5,
-    p_thresh=1e-5,
     neutral_mean=2,
     neutral_std=1,
     transmat_prior=1,
@@ -162,13 +161,13 @@ def _get_states(
     ----------
     vals: ordered copy number values (from bin_by_bands function)
     n_components: number of components to use for the hmm. We default to 5 for better sensitivity.
-    p_thresh: cutoff to determine if a cluster should also be neutral
-    neutral: the number to use for neutral. For Echidna, this is always 2. 
+    neutral: the number to use for neutral. 
     transmat_prior: Parameters of the Dirichlet prior distribution for each row of the transition probabilities
     startprob_prior: Parameters of the Dirichlet prior distribution for startprob_
     
     Returns
     -------
+    pd.DataFrame
     """
     scores = []
     models = []
@@ -202,11 +201,12 @@ def _get_states(
 
     tmp = pd.DataFrame({"vals": vals, "states": states})
     state_dict = tmp.groupby("states")["vals"].mean().reset_index()
-    # display(state_dict)
+
     # state_dict["sq_dist_to_neut"] = (state_dict["vals"] - neutral)**2
     # state_dict["dist_to_neut"] = state_dict["vals"] - neutral
     # state_dict = state_dict.sort_values(by="sq_dist_to_neut")
-    n_stddevs = 3
+    
+    n_stddevs = 1.96
     state_dict["neutral"] = abs(state_dict["vals"] - neutral_mean) <= n_stddevs * neutral_std
     state_dict["amp"] = state_dict["vals"] - neutral_mean > n_stddevs * neutral_std
     state_dict["del"] = state_dict["vals"] - neutral_mean < -n_stddevs * neutral_std
@@ -267,26 +267,6 @@ def get_neutral_state(
 
     return gmm_means_df.set_index("eta_column_label")
 
-def gene_dosage_effect(eta_samples, eta_mean, eta_mode, cluster_idx, c_shape, timepoint_idx):
-    # delta Var(c|eta)
-    # delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - c_shape[:, timepoint_idx]*eta_mode**2
-    delta_var = c_shape[:, timepoint_idx]*eta_mean[:, cluster_idx]**2 - \
-		c_shape[:, timepoint_idx]*eta_mode[None, cluster_idx]**2
-
-    # Var(E[c|eta])
-    exp_c_given_eta = c_shape[None, :, timepoint_idx] * \
-        eta_samples[:, :, cluster_idx]
-        
-    var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=0)
-    # E[Var(c|eta)]
-    exp_var_c_given_eta = c_shape[None, :,timepoint_idx] * eta_samples[:, :, cluster_idx]**2
-    exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=0)
-
-    # (Var(c|eta)-Var(c|eta_mode))/(Var(E[c|eta])+E[Var(c|eta)])
-    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)
-
-    return var_exp
-
 def gene_dosage_effect(
     adata,
     smoother_sigma: float=6,
@@ -324,31 +304,32 @@ def gene_dosage_effect(
     )
     eta_mode = get_neutral_state(
         eta_filtered_smooth, clone_cols, n_gmm_components
-    )["mode"].values.reshape(-1,1)
+    )["neutral_value_mean"]
     
-    eta_samples = sample(adata, "eta").cpu().detach().numpy()
-    c_shape = pyro.param("c_shape").cpu().detach().numpy()
-    eta_mean = pyro.param("eta_mean").cpu().detach().numpy()
+    eta_samples = sample(adata, "eta")
+    c_shape = pyro.param("c_shape")
+    eta_mean = pyro.param("eta_mean")
+    eta_mode = torch.tensor(eta_mode, device=model.config.device)
     
-    print(eta_mode) # (12, 1)
-    print(eta_samples.shape) # (17735, 12)
-    print(c_shape.shape) # (n_timepoints, 17735)
-    print(eta_mean.shape) # (17735, 12)
-    
+    if adata.uns["echidna"]["config"]["_is_multi"]:
+        c_shape = c_shape.squeeze()
+        
     # delta Var(c|eta)
-    delta_var = (c_shape * eta_mean**2) - (c_shape * eta_mode**2)
-
+    delta_var = (c_shape[:, :, None] * eta_mean[None, :, :]**2) - c_shape[:, :, None] * eta_mode[None, :]
+    
     # Var(E[c|eta])
-    exp_c_given_eta = c_shape.T[..., None] * eta_samples[..., None]  # Broadcasting to [n_genes, n_clusters, 1]
-    var_exp_c_given_eta = np.var(exp_c_given_eta, axis=0)
-
+    exp_c_given_eta = c_shape[:, :, None] * eta_samples[None, :, :]
+    var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=1)
+    
     # E[Var(c|eta)]
-    exp_var_c_given_eta = c_shape.T[..., None] * eta_samples[..., None]**2
-    exp_var_c_given_eta = np.mean(exp_var_c_given_eta, axis=0)
+    exp_var_c_given_eta = c_shape[:, :, None] * eta_samples[None, :, :]**2
+    exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=1)
 
-    # (Var(c|eta) - Var(c|eta_mode)) / (Var(E[c|eta]) + E[Var(c|eta)])
-    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)
-
+    # (Var(c|eta)-Var(c|eta_mode)) / (Var(E[c|eta])+E[Var(c|eta)])
+    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)[:, None, :]
+    
+    return var_exp
+    
 def genes_to_bands(genes, cytobands):
     spanning_genes = []
     for i, gene in genes.iterrows():

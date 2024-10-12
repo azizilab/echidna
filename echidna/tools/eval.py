@@ -234,7 +234,7 @@ def mahalanobis_distance_matrix(eta):
     return distance_matrix
 
 def distance_matrix_helper(eta, similarity_metric):
-    if similarity_metric == "smoothed":
+    if similarity_metric == "smoothed_corr":
         eta = eta.cpu().detach().numpy()
         eta = gaussian_filter1d(eta, sigma=6, axis=1, radius=8)
         return pdist(eta, metric="correlation")
@@ -247,7 +247,7 @@ def distance_matrix_helper(eta, similarity_metric):
         return mahalanobis_distance_matrix(eta).cpu().detach().numpy()
     else:
         raise ValueError(
-            "Invalid similarity_metric. Use `smoothed`, `cov`, `corr`."
+            "Invalid similarity_metric. Use `smoothed_corr`, `cov`, `corr`."
         )
 
 def eta_tree_elbow_thresholding(
@@ -257,7 +257,7 @@ def eta_tree_elbow_thresholding(
     plot_elbow: bool=False
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_metric = "ward" if similarity_metric == "smoothed" else "average"
+    link_metric = "ward" if similarity_metric == "smoothed_corr" else "average"
     Z = linkage(dist_mat, link_metric)
     distance = Z[:, 2]
     differences = np.diff(distance)
@@ -291,7 +291,7 @@ def eta_tree_cophenetic_thresholding(
     plot_dendrogram: bool=False,
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_metric = "ward" if similarity_metric == "smoothed" else "average"
+    link_metric = "ward" if similarity_metric == "smoothed_corr" else "average"
     if dist_matrix:
         Z = linkage(squareform(dist_mat), link_metric)
     else:
@@ -313,7 +313,7 @@ def eta_tree(
     plot_dendrogram: bool=False
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_metric = "ward" if similarity_metric == "smoothed" else "average"
+    link_metric = "ward" if similarity_metric == "smoothed_corr" else "average"
     Z = linkage(dist_mat, link_metric)
     if not plot_dendrogram:
         return dendrogram(Z, color_threshold=thres, no_plot=True)
@@ -356,7 +356,7 @@ def echidna_clones(
     threshold: float=0.,
 ):
     echidna = load_model(adata)
-    metric = "smoothed" if metric is None else metric
+    metric = "smoothed_corr" if metric is None else metric
     adata.uns["echidna"]["save_data"]["dendrogram_metric"] = metric
     
     # If a threshold is set, use that threshold
