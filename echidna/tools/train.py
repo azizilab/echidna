@@ -62,7 +62,10 @@ def echidna_train(adata, Wdf, config=EchidnaConfig()):
     config.num_clusters = len(adata.obs[config.clusters].unique())
     
     adata = train_val_split(adata, config)
+    
     match_genes(adata, Wdf)
+    
+    adata.obs.loc[:,config.clusters] = adata.obs.loc[:,config.clusters].astype(int)    
     
     adata_match = adata[:, adata.var.echidna_matched_genes].copy()
     

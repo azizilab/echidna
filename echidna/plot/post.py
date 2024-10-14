@@ -6,14 +6,17 @@ import scanpy as sc
 import numpy as np
 import pandas as pd
 import os
+from typing import Union, List
+import torch
 
 from echidna.tools.eval import (
     eta_tree,
     eta_tree_elbow_thresholding,
     eta_tree_cophenetic_thresholding,
 )
+from echidna.tools.infer_cnv import gene_dosage_effect
 from echidna.tools.housekeeping import load_model
-from echidna.tools.data import sort_chromosomes
+from echidna.tools.data import sort_chromosomes, filter_low_var_genes
 from echidna.plot.utils import save_figure, activate_plot_settings
 from echidna.utils import get_logger
 
@@ -22,23 +25,33 @@ logger = get_logger(__name__)
 def plot_cnv(adata, c: str=None, filename: str=None):
     c = "all" if c is None else c
     
+    # Retrieve save data from tools functions
     if "infer_cnv" not in adata.uns["echidna"]["save_data"]:
         raise ValueError("Must run `ec.tl.infer_cnv` first.")
     file_save_path = adata.uns["echidna"]["save_data"]["infer_cnv"]
+    neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
     if not os.path.exists(file_save_path):
         raise ValueError(
             "Saved results not found. Run `ec.tl.infer_cnv` first."
         )
-
-    # band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
     eta_genome_merge = pd.read_csv(file_save_path)
+    neutral_states = pd.read_csv(
+        neutral_save_path,
+        index_col="eta_column_label",
+    )
+    num_clusters = adata.obs[adata.uns["echidna"]["config"]["clusters"]].nunique()
+    
+    # band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
+    
+    for i in [f"echidna_clone_{i}" for i in range(num_clusters)]:
+        eta_genome_merge[i] -= neutral_states.loc[i, "neutral_value_mean"].item()
+    
     chrom_counts = sort_chromosomes(
         eta_genome_merge.groupby("chrom")["geneName"].nunique()
     ).cumsum()
     
     activate_plot_settings()
     if c != "all":
-
         if f"echidna_clone_{c}" not in eta_genome_merge.columns:
             raise ValueError(f"Specified cluster `echidna_clone_{c}` not found.")
         vals = eta_genome_merge.loc[:, f"echidna_clone_{c}"]
@@ -52,8 +65,6 @@ def plot_cnv(adata, c: str=None, filename: str=None):
             filename=filename,
         )  
     elif c == "all":
-        num_clusters = adata.obs[adata.uns["echidna"]["config"]["clusters"]].nunique()
-
         fig, ax = plt.subplots(figsize=(20,5), nrows=1, ncols=1)
         
         eta_genome_merge = eta_genome_merge[
@@ -88,45 +99,111 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         
         if filename: fig.savefig(filename, format="png")
 
-def plot_gene_dosage(adata, filename: str=None):
-    return
+def plot_gene_dosage(
+    adata,
+    clusters: Union[int, List[int]]=None,
+    timepoints: Union[int, List[int]]=None,
+    quantile: float=.75,
+    var_threshold: float=None,
+    filename: str=None,
+) -> None:
+    model = load_model(adata)
+    
+    if "gene_dosage" not in adata.uns["echidna"]["save_data"]:
+        gene_dosage = gene_dosage_effect(adata)
+    else:
+        gene_dosage_cache = adata.uns["echidna"]["save_data"]["gene_dosage"]
+        if not os.path.exists(gene_dosage_cache):
+            raise ValueError(
+                "Saved results not found. Run `ec.tl.gene_dosage_effect` first."
+            )
+        gene_dosage = torch.load(gene_dosage_cache).to(model.config.device)
+    
+    # Ensure clusters is a list of integers
+    if clusters is not None:
+        if isinstance(clusters, int):
+            clusters = [clusters]
+        elif not all(isinstance(cl, int) for cl in clusters):
+            raise ValueError("Clusters must be an integer or a list of integers.")
+        
+        if not all(0 <= cl < gene_dosage.shape[-1] for cl in clusters):
+            raise ValueError(
+                f"Invalid cluster values: {clusters}. "
+                f"Clusters must be integers in the range [0, {gene_dosage.shape[-1] - 1}]."
+            )
+    else:
+        clusters = list(range(0, gene_dosage.shape[-1]))
 
-def plot_gmm_clusters(gmm, vals_filtered, gmm_mean, i):
-    fig, ax = plt.subplots(
-            nrows=1,
-            ncols=1, 
-            figsize=(10, 5)
+    # Ensure timepoints is a list of integers
+    if timepoints is not None:
+        if isinstance(timepoints, int):
+            timepoints = [timepoints]
+        elif not all(isinstance(tp, int) for tp in timepoints):
+            raise ValueError("Timepoints must be an integer or a list of integers.")
+        
+        if not all(0 <= tp < gene_dosage.shape[0] for tp in timepoints):
+            raise ValueError(
+                f"Invalid timepoint values: {timepoints}. "
+                f"Timepoints must be integers in the range [0, {gene_dosage.shape[0] - 1}]."
+            )
+    else:
+        timepoints = list(range(0, gene_dosage.shape[0]))
+    
+    neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
+    neutral_states = pd.read_csv(
+        neutral_save_path,
+        index_col="eta_column_label",
+    )
+    eta = model.eta_ground_truth
+    echidna_matched_genes = adata[
+        :, adata.var["echidna_matched_genes"]
+    ].var.index
+
+    eta = pd.DataFrame(
+        model.eta_ground_truth.T.cpu().detach().numpy(),
+        index=echidna_matched_genes,
+        # columns=[f"echidna_clone_{i}" for i in range(num_clusters)]
+    )
+    
+    filter_genes = filter_low_var_genes(
+        adata[:, adata.var["echidna_matched_genes"]].copy(),
+        quantile=quantile,
+        var_threshold=var_threshold,
+        indices=True,
     )
 
-    x = np.linspace(-5, 10, 1000)
-    data = np.asarray(vals_filtered).squeeze()
-
-    sns.histplot(data, bins=30, stat='density', alpha=0.6, color='gray', ax=ax)
-
-    for mean, variance, weight in zip(gmm.means_, gmm.covariances_, gmm.weights_):
-        variance = np.sqrt(variance).flatten()
-        label = f'Component mean={mean[0]:.3f}'
-        color = 'red' if np.isclose(mean[0], gmm_mean, atol=0.1) else None
-        linewidth = 3 if color == 'red' else 1
-
-        ax.plot(
-            x,
-            weight * (1 / np.sqrt(2 * np.pi * variance)) * np.exp(-(x - mean) ** 2 / (2 * variance)),
-            label=f'Neutral mean = {gmm_mean:.3f}' if color else label,
-            color=color,
-            linewidth=linewidth
+    filter_genes_tensor = torch.tensor(filter_genes, device=model.config.device)
+    filter_genes_indices = torch.nonzero(filter_genes_tensor, as_tuple=False).squeeze()
+    eta = eta[filter_genes]
+    
+    n_rows = len(clusters)
+    n_cols = len(timepoints)
+    
+    # Set the figsize dynamically based on the number of rows and columns
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows), squeeze=False)
+    
+    # Loop over each cluster and timepoint to create subplots
+    for i, tp in enumerate(timepoints):
+        gene_dosage_df = pd.DataFrame(
+                gene_dosage[tp, filter_genes_indices, :].abs().cpu().detach().numpy(),
+                index=eta.index,#adata[:, adata.var["echidna_matched_genes"]].var.index,
         )
+        for j, cl in enumerate(clusters):
 
-    logprob = gmm.score_samples(x.reshape(-1, 1))
-    pdf = np.exp(logprob)
-    ax.plot(x, pdf, '-k', label='Global Density')
-
-    ax.set_xlabel('Eta values')
-    ax.set_ylabel('Density')
-    ax.set_title(f"Echidna Cluster {i}")
-    ax.legend()
+            ax = axes[j][i]
+            
+            sns.scatterplot(
+                x=eta[cl] - neutral_states.loc[f"echidna_clone_{cl}", "neutral_value_mean"],
+                y=gene_dosage_df[cl],
+                ax=ax
+            )
+            ax.set_title(f"Cluster {cl}, Timepoint {tp}")
+            ax.set_xlabel("Eta Shifted")
+            ax.set_ylabel("Gene Dosage Effect")
 
     plt.tight_layout()
+    if filename:
+        plt.savefig(filename)
     plt.show()
 
 def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, filename=None):

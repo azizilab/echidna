@@ -29,6 +29,7 @@ def set_posteriors(echidna, data):
     echidna.eta_ground_truth = eta_posterior_estimates(echidna, data)
     echidna.c_ground_truth = c_posterior_estimates(eta=echidna.eta_ground_truth, mt=echidna.config._is_multi)
     echidna.cov_ground_truth = cov_posterior_estimate(inverse_gamma=echidna.config.inverse_gamma)
+    echidna.corr_ground_truth = normalize_cov(echidna.cov_ground_truth)
     echidna.library_size = data[0].sum(-1, keepdim=True) * 1e-5
     return echidna
 
@@ -89,6 +90,14 @@ def cov_posterior_estimate(inverse_gamma=False, num_samples=(int(1e3),)):
     cov = cov@cov.T
     
     return cov
+
+def normalize_cov(cov):
+    """Posterior mean of correlation matrix. Takes in estimated covariance."""
+    std_dev = torch.sqrt(torch.diag(cov))
+    outer_std_dev = torch.outer(std_dev, std_dev)
+    corr_matrix = cov / outer_std_dev
+    corr_matrix.fill_diagonal_(1)  # Set diagonal elements to 1
+    return corr_matrix
 
 def save_model(adata, model, overwrite=False, simulation=False):
     """

@@ -17,7 +17,6 @@ from echidna.tools.housekeeping import load_model
 from echidna.tools.data import filter_low_var_genes, sort_chromosomes
 from echidna.tools.eval import sample
 from echidna.utils import get_logger, ECHIDNA_GLOBALS
-from echidna.plot.post import plot_gmm_clusters
 
 logger = get_logger(__name__)
 
@@ -111,6 +110,8 @@ def infer_cnv(
         how="inner",
         validate="many_to_one",
     )
+    
+    ## OLD
     # if "weight" in genome.columns:
     #     bands_eta_merge[clone_cols] = bands_eta_merge[clone_cols].mul(
     #         bands_eta_merge["weight"], axis="index"
@@ -128,21 +129,31 @@ def infer_cnv(
             neutral_std=neutral_states.loc[c, "neutral_value_std"].item(),
             **kwargs
         )
-        eta_genome_merge[c] -= neutral_states.loc[c, "neutral_value_mean"].item()
 
     infer_cnv_save_path = os.path.join(
         ECHIDNA_GLOBALS["save_folder"],
         adata.uns["echidna"]["run_id"],
         "_echidna_cnv.csv",
     )
+    neutrals_save_path = os.path.join(
+        ECHIDNA_GLOBALS["save_folder"],
+        adata.uns["echidna"]["run_id"],
+        "_gmm_neutrals.csv",
+    )
     
     eta_genome_merge.to_csv(
         infer_cnv_save_path,
         index=False,
     )
+    neutral_states.to_csv(
+        neutrals_save_path,
+        index=True,
+    )
     adata.uns["echidna"]["save_data"]["infer_cnv"] = infer_cnv_save_path
+    adata.uns["echidna"]["save_data"]["gmm_neutrals"] = neutrals_save_path
     logger.info(
-        "Added `.uns['echidna']['save_data']['infer_cnv']` : Path to CNV inference results."
+        "Added `.uns['echidna']['save_data']['infer_cnv']` : Path to CNV inference results.\n"
+        "Added `.uns['echidna']['save_data']['gmm_neutrals']` : Path to Echidna cluster neutral value results."
     )
 
 def _get_states(
@@ -259,7 +270,7 @@ def get_neutral_state(
         gmm_std = np.std(cur_vals_filtered[labels == neut_component])
 
         if plot_gmm:
-            plot_gmm_clusters(
+            _plot_gmm_clusters(
                 gmm, cur_vals_filtered, gmm_mean, i
             )
 
@@ -267,12 +278,46 @@ def get_neutral_state(
 
     return gmm_means_df.set_index("eta_column_label")
 
+def _plot_gmm_clusters(gmm, vals_filtered, gmm_mean, i):
+    fig, ax = plt.subplots(
+            nrows=1,
+            ncols=1, 
+            figsize=(10, 5)
+    )
+
+    x = np.linspace(-5, 10, 1000)
+    data = np.asarray(vals_filtered).squeeze()
+
+    sns.histplot(data, bins=30, stat='density', alpha=0.6, color='gray', ax=ax)
+
+    for mean, variance, weight in zip(gmm.means_, gmm.covariances_, gmm.weights_):
+        variance = np.sqrt(variance).flatten()
+        label = f'Component mean={mean[0]:.3f}'
+        color = 'red' if np.isclose(mean[0], gmm_mean, atol=0.1) else None
+        linewidth = 3 if color == 'red' else 1
+
+        ax.plot(
+            x,
+            weight * (1 / np.sqrt(2 * np.pi * variance)) * np.exp(-(x - mean) ** 2 / (2 * variance)),
+            label=f'Neutral mean = {gmm_mean:.3f}' if color else label,
+            color=color,
+            linewidth=linewidth
+        )
+
+    logprob = gmm.score_samples(x.reshape(-1, 1))
+    pdf = np.exp(logprob)
+    ax.plot(x, pdf, '-k', label='Global Density')
+
+    ax.set_xlabel('Eta values')
+    ax.set_ylabel('Density')
+    ax.set_title(f"Echidna Cluster {i}")
+    ax.legend()
+
+    plt.tight_layout()
+    plt.show()
+
 def gene_dosage_effect(
     adata,
-    smoother_sigma: float=6,
-    smoother_radius: float=8,
-    filter_quantile: float=.7,
-    n_gmm_components: int=5,
     **kwargs
 ):
     """
@@ -280,42 +325,52 @@ def gene_dosage_effect(
     eta_samples, eta_mean [n_genes, n_clusters]
     c_shape  [n_genes, n_timepoints]
     """
+    
+    # Retrieve save data from tools functions
+    if "gmm_neutrals" not in adata.uns["echidna"]["save_data"]:
+        raise ValueError("Must run `ec.tl.infer_cnv` first.")
+    neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
+    if not os.path.exists(neutral_save_path):
+        raise ValueError(
+            "Saved results not found. Run `ec.tl.infer_cnv` first."
+        )
+    neutral_states = pd.read_csv(neutral_save_path)
+    
     model = load_model(adata)
 
-    adata_filtered = filter_low_var_genes(
-        adata.copy(), quantile=filter_quantile
-    )
+    # echidna_matched_genes = adata_filtered[
+    #     :, adata_filtered.var["echidna_matched_genes"]
+    # ].var.index
     
-    echidna_matched_genes = adata[
-        :, adata.var["echidna_matched_genes"]
-    ].var.index
+    # eta = pd.DataFrame(
+    #     model.eta_ground_truth.T.cpu().detach().numpy(),
+    #     index=echidna_matched_genes,
+    # )
+    # echidna_matched_genes = echidna_matched_genes.intersection(adata_filtered.var.index)
     
-    eta = pd.DataFrame(
-        model.eta_ground_truth.T.cpu().detach().numpy(),
-        index=echidna_matched_genes,
-    )
-    echidna_matched_genes = echidna_matched_genes.intersection(adata_filtered.var.index)
-    
-    eta = eta.reindex(echidna_matched_genes)
-    clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
+    # eta = eta.reindex(echidna_matched_genes)
+    # clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
 
-    eta_filtered_smooth = gaussian_filter1d(
-        eta, sigma=smoother_sigma, axis=0, radius=smoother_radius
-    )
-    eta_mode = get_neutral_state(
-        eta_filtered_smooth, clone_cols, n_gmm_components
-    )["neutral_value_mean"]
+    # eta_filtered_smooth = gaussian_filter1d(
+    #     eta, sigma=smoother_sigma, axis=0, radius=smoother_radius
+    # )
+    # eta_mode = get_neutral_state(
+    #     eta_filtered_smooth, clone_cols, n_gmm_components
+    # )["neutral_value_mean"]
     
     eta_samples = sample(adata, "eta")
     c_shape = pyro.param("c_shape")
-    eta_mean = pyro.param("eta_mean")
-    eta_mode = torch.tensor(eta_mode, device=model.config.device)
+    eta_mean = model.eta_ground_truth.T #pyro.param("eta_mean")
+    eta_mode = torch.tensor(
+        neutral_states["neutral_value_mean"].values,
+        device=model.config.device
+    )
     
     if adata.uns["echidna"]["config"]["_is_multi"]:
         c_shape = c_shape.squeeze()
         
     # delta Var(c|eta)
-    delta_var = (c_shape[:, :, None] * eta_mean[None, :, :]**2) - c_shape[:, :, None] * eta_mode[None, :]
+    delta_var = (c_shape[:, :, None] * eta_mean[None, :, :]**2) - c_shape[:, :, None] * eta_mode[None, :]**2
     
     # Var(E[c|eta])
     exp_c_given_eta = c_shape[:, :, None] * eta_samples[None, :, :]
@@ -328,7 +383,19 @@ def gene_dosage_effect(
     # (Var(c|eta)-Var(c|eta_mode)) / (Var(E[c|eta])+E[Var(c|eta)])
     var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)[:, None, :]
     
-    return var_exp
+    gene_dosage_cache_path = os.path.join(
+        ECHIDNA_GLOBALS["save_folder"],
+        adata.uns["echidna"]["run_id"],
+        "_gene_dosage_cache.pt",
+    )
+    torch.save(var_exp, f=gene_dosage_cache_path)
+    adata.uns["echidna"]["save_data"]["gene_dosage"] = gene_dosage_cache_path
+    logger.info(
+        "Added `.uns['echidna']['save_data']['gene_dosage']`"
+        " : Path to gene dosage effect results."
+    )
+    
+    # return var_exp
     
 def genes_to_bands(genes, cytobands):
     spanning_genes = []

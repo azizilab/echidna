@@ -96,14 +96,19 @@ def pre_process(
 
 def filter_low_var_genes(
     adata: sc.AnnData,
-    quantile: float=0.75
+    quantile: float=0.75,
+    var_threshold: float=None,
+    indices: bool=False,
 ) -> sc.AnnData:
     gene_variances = adata.X.var(axis=0)
-    var_threshold = np.quantile(gene_variances, quantile)
-    gene_filter = gene_variances > var_threshold
     
-    # gene_filter = (adata.X.var(axis=0) / (adata.X.mean(axis=0) + 1e-8)) > var_threshold
-    
+    if var_threshold is not None:
+        gene_filter = gene_variances > var_threshold # / (adata.X.mean(axis=0) + 1e-8)
+    elif var_threshold is None:
+        var_threshold = np.quantile(gene_variances, quantile)
+        gene_filter = gene_variances > var_threshold
+    if indices:
+        return gene_filter
     return adata[:, gene_filter]
 
 def train_val_split(adata, config):

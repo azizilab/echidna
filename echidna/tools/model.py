@@ -43,7 +43,7 @@ class Echidna:
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(self.config.num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
-        scale = scale[:, None] if not self.config.inverse_gamma else 1/scale[:, None] # CHECK WITH MING
+        scale = scale[:, None] if self.config.inverse_gamma is False else 1/scale[:, None] # CHECK WITH MING
         cholesky_cov = cholesky_corr * torch.sqrt(scale) # INVERSE GAMMA OPTION
 
         # Sample eta
@@ -102,7 +102,7 @@ class Echidna:
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
-        q_scale = q_scale[:, None] if not self.config.inverse_gamma else 1/q_scale[:, None] # CHECK WITH MING
+        q_scale = q_scale[:, None] if self.config.inverse_gamma is False else 1/q_scale[:, None] # CHECK WITH MING
         q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale) # INVERSE GAMMA OPTION
 
         with gene_plate:
@@ -127,7 +127,7 @@ class Echidna:
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
-        scale = scale[:, None] if not self.config.inverse_gamma else 1/scale[:, None] # CHECK WITH MING
+        scale = scale[:, None] if self.config.inverse_gamma is False else 1/scale[:, None] # CHECK WITH MING
         cholesky_cov = cholesky_corr * torch.sqrt(scale) # INVERSE GAMMA
         assert cholesky_cov.shape == (num_clusters, num_clusters) 
         # Sample eta
@@ -180,7 +180,7 @@ class Echidna:
         corr_dist = dist.MultivariateNormal(corr_loc, corr_cov)
         transformed_dist = dist.TransformedDistribution(corr_dist, dist.transforms.CorrCholeskyTransform())
         q_cholesky_corr = pyro.sample("cholesky_corr", transformed_dist)
-        q_scale = q_scale[:, None] if not self.config.inverse_gamma else 1/q_scale[:, None] # CHECK WITH MING  
+        q_scale = q_scale[:, None] if self.config.inverse_gamma is False else 1/q_scale[:, None] # CHECK WITH MING  
         q_cholesky_cov = q_cholesky_corr * torch.sqrt(q_scale) # INVERSE GAMMA OPTION 
 
         with gene_plate:
