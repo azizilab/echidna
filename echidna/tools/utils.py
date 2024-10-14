@@ -144,7 +144,7 @@ def _custom_sort(items, order_dict):
     
     return sorted_list
 
-def reset_echinda_memory():
+def reset_echidna_memory():
     save_folder = ECHIDNA_GLOBALS["save_folder"]
     
     if os.path.exists(save_folder) and os.path.isdir(save_folder):

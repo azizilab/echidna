@@ -1,6 +1,6 @@
 # echidna.tools.__init__.py
 
-from .utils import EchidnaConfig, reset_echinda_memory, set_sort_order
+from .utils import EchidnaConfig, reset_echidna_memory, set_sort_order
 from .data import pre_process, build_torch_tensors, filter_low_var_genes
 from .train import echidna_train, simulate
 from .eval import echidna_clones, sample
@@ -9,7 +9,7 @@ from .housekeeping import save_model, load_model, get_learned_params
 
 __all__ = [
     "EchidnaConfig",
-    "reset_echinda_memory",
+    "reset_echidna_memory",
     "set_sort_order",
     "pre_process",
     "build_torch_tensors",

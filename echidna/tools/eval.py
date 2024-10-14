@@ -162,7 +162,7 @@ def sample_eta(adata, num_samples=(1,)):
     )
     eta_samples = eta_posterior.sample(num_samples).squeeze()
     del echidna
-    return eta_samples
+    return torch.nn.functional.softplus(eta_samples)
 
 def sample_cov(adata, num_samples=(1,)):
     """Sample a covariance matrix from the posterior distribution.
@@ -227,9 +227,14 @@ def normalize_cov(cov_matrix):
 
 def mahalanobis_distance_matrix(eta):
     cov_matrix = torch.cov(eta)
-    cov_inv = torch.inverse(cov_matrix)
-    diffs = eta.T.unsqueeze(1) - eta.T.unsqueeze(0)
-    distance_matrix = torch.sqrt((diffs @ cov_inv @ diffs.transpose(-1, -2)).squeeze(-1).squeeze(-1))
+    cov_inv = torch.linalg.inv(cov_matrix)
+    
+    num_vectors = eta.size(1)
+    distance_matrix = torch.zeros((num_vectors, num_vectors), device=eta.device)
+    
+    for i in range(num_vectors):
+        diff_i = eta.T - eta.T[i]  # Broadcasting difference for row i
+        distance_matrix[i] = torch.sqrt((diff_i @ cov_inv @ diff_i.T).diag())
     
     return distance_matrix
 

@@ -103,7 +103,7 @@ def plot_gene_dosage(
     adata,
     clusters: Union[int, List[int]]=None,
     timepoints: Union[int, List[int]]=None,
-    quantile: float=.75,
+    quantile: float=.8,
     var_threshold: float=None,
     filename: str=None,
 ) -> None:
@@ -141,13 +141,13 @@ def plot_gene_dosage(
         elif not all(isinstance(tp, int) for tp in timepoints):
             raise ValueError("Timepoints must be an integer or a list of integers.")
         
-        if not all(0 <= tp < gene_dosage.shape[0] for tp in timepoints):
+        if not all(0 <= tp < gene_dosage.shape[-2] for tp in timepoints):
             raise ValueError(
                 f"Invalid timepoint values: {timepoints}. "
-                f"Timepoints must be integers in the range [0, {gene_dosage.shape[0] - 1}]."
+                f"Timepoints must be integers in the range [0, {gene_dosage.shape[-2] - 1}]."
             )
     else:
-        timepoints = list(range(0, gene_dosage.shape[0]))
+        timepoints = list(range(0, gene_dosage.shape[-2]))
     
     neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
     neutral_states = pd.read_csv(
@@ -179,13 +179,12 @@ def plot_gene_dosage(
     n_rows = len(clusters)
     n_cols = len(timepoints)
     
-    # Set the figsize dynamically based on the number of rows and columns
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 5 * n_rows), squeeze=False)
     
     # Loop over each cluster and timepoint to create subplots
     for i, tp in enumerate(timepoints):
         gene_dosage_df = pd.DataFrame(
-                gene_dosage[tp, filter_genes_indices, :].abs().cpu().detach().numpy(),
+                gene_dosage[filter_genes_indices, tp, :].abs().cpu().detach().numpy(),
                 index=eta.index,#adata[:, adata.var["echidna_matched_genes"]].var.index,
         )
         for j, cl in enumerate(clusters):

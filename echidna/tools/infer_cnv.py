@@ -1,10 +1,12 @@
-# echidna.tools.hmm.py
+# echidna.tools.infer_cnv.py
 
 import logging, os, re, sys
 
 import scanpy as sc
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 import torch
 import pyro
 
@@ -358,7 +360,7 @@ def gene_dosage_effect(
     #     eta_filtered_smooth, clone_cols, n_gmm_components
     # )["neutral_value_mean"]
     
-    eta_samples = sample(adata, "eta")
+    eta_samples = sample(adata, "eta", num_samples=(10,))
     c_shape = pyro.param("c_shape")
     eta_mean = model.eta_ground_truth.T #pyro.param("eta_mean")
     eta_mode = torch.tensor(
@@ -368,20 +370,30 @@ def gene_dosage_effect(
     
     if adata.uns["echidna"]["config"]["_is_multi"]:
         c_shape = c_shape.squeeze()
-        
-    # delta Var(c|eta)
-    delta_var = (c_shape[:, :, None] * eta_mean[None, :, :]**2) - c_shape[:, :, None] * eta_mode[None, :]**2
+    c_shape = c_shape.T
     
-    # Var(E[c|eta])
-    exp_c_given_eta = c_shape[:, :, None] * eta_samples[None, :, :]
-    var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=1)
-    
-    # E[Var(c|eta)]
-    exp_var_c_given_eta = c_shape[:, :, None] * eta_samples[None, :, :]**2
-    exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=1)
+    c_shape_expanded = c_shape[None, :, :, None]        # [1, G, T, 1]
+    eta_samples_expanded = eta_samples[:, :, None, :]   # [n_samples, G, 1, C]
 
-    # (Var(c|eta)-Var(c|eta_mode)) / (Var(E[c|eta])+E[Var(c|eta)])
-    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)[:, None, :]
+    # delta Var(c|eta)
+    eta_mean_expanded = eta_mean[:, None, :]            # [G, 1, C]
+    eta_mode_expanded = eta_mode[None, None, :]         # [1, 1, C]
+
+    delta_var = (
+        c_shape[:, :, None] * eta_mean_expanded**2
+        - c_shape[:, :, None] * eta_mode_expanded**2
+    )  # [G, T, C]
+
+    # Var(E[c|eta])
+    exp_c_given_eta = c_shape_expanded * eta_samples_expanded  # [n_samples, G, T, C]
+    var_exp_c_given_eta = torch.var(exp_c_given_eta, unbiased=True, dim=0)  # [G, T, C]
+
+    # E[Var(c|eta)]
+    exp_var_c_given_eta = c_shape_expanded * eta_samples_expanded**2        # [n_samples, G, T, C]
+    exp_var_c_given_eta = torch.mean(exp_var_c_given_eta, dim=0)            # [G, T, C]
+
+    # (Var(c|eta)-Var(c|eta_mode))/(Var(E[c|eta])+E[Var(c|eta)])
+    var_exp = delta_var / (var_exp_c_given_eta + exp_var_c_given_eta)       # [G, T, C]
     
     gene_dosage_cache_path = os.path.join(
         ECHIDNA_GLOBALS["save_folder"],
