@@ -26,10 +26,10 @@ def set_posteriors(echidna, data):
     """
     Set model posteriors after training
     """
-    echidna.eta_ground_truth = eta_posterior_estimates(echidna, data)
-    echidna.c_ground_truth = c_posterior_estimates(eta=echidna.eta_ground_truth, mt=echidna.config._is_multi)
-    echidna.cov_ground_truth = cov_posterior_estimate(inverse_gamma=echidna.config.inverse_gamma)
-    echidna.corr_ground_truth = normalize_cov(echidna.cov_ground_truth)
+    echidna.eta_posterior = eta_posterior_estimates(echidna, data)
+    echidna.c_posterior = c_posterior_estimates(eta=echidna.eta_posterior, mt=echidna.config._is_multi)
+    echidna.cov_posterior = cov_posterior_estimate(inverse_gamma=echidna.config.inverse_gamma)
+    echidna.corr_posterior = normalize_cov(echidna.cov_posterior)
     echidna.library_size = data[0].sum(-1, keepdim=True) * 1e-5
     return echidna
 

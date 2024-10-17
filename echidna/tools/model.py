@@ -29,9 +29,9 @@ class Echidna:
             self.model = poutine.scale(self.model_st, scale=self.log_prob_scaler)
             self.guide = poutine.scale(self.guide_st, scale=self.log_prob_scaler)
 
-        self.eta_ground_truth = None
-        self.c_ground_truth = None
-        self.cov_ground_truth = None
+        self.eta_posterior = None
+        self.c_posterior = None
+        self.cov_posterior = None
             
     def model_st(self, X, W, pi, z):
         library_size = X.sum(-1, keepdim=True) * 1e-5

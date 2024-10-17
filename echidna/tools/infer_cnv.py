@@ -68,7 +68,7 @@ def infer_cnv(
     genome = sort_chromosomes(genome)
     
     echidna = load_model(adata)
-    eta = echidna.eta_ground_truth
+    eta = echidna.eta_posterior
     
     del echidna
     torch.cuda.empty_cache()
@@ -345,7 +345,7 @@ def gene_dosage_effect(
     # ].var.index
     
     # eta = pd.DataFrame(
-    #     model.eta_ground_truth.T.cpu().detach().numpy(),
+    #     model.eta_posterior.T.cpu().detach().numpy(),
     #     index=echidna_matched_genes,
     # )
     # echidna_matched_genes = echidna_matched_genes.intersection(adata_filtered.var.index)
@@ -362,7 +362,7 @@ def gene_dosage_effect(
     
     eta_samples = sample(adata, "eta", num_samples=(10,))
     c_shape = pyro.param("c_shape")
-    eta_mean = model.eta_ground_truth.T #pyro.param("eta_mean")
+    eta_mean = model.eta_posterior.T #pyro.param("eta_mean")
     eta_mode = torch.tensor(
         neutral_states["neutral_value_mean"].values,
         device=model.config.device

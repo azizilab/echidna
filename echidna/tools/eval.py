@@ -43,7 +43,7 @@ def sample(adata, variable, **kwargs):
         "W": sample_W,
         "c": sample_c,
         "eta": sample_eta,
-        "cov": sample_cov, 
+        "cov": sample_cov,
     }
     
     samples = [sample_funcs[v](adata, **kwargs) for v in variable]
@@ -103,9 +103,9 @@ def sample_X(adata, num_cells=None, return_z=False):
         )
     library_size = torch.stack(library_size) * 1e-5
     z = torch.stack(z)
-    c = echidna.c_ground_truth
+    c = echidna.c_posterior
     if not bool(config["_is_multi"]): c = c.unsqueeze(0)
-    eta = echidna.eta_ground_truth
+    eta = echidna.eta_posterior
 
     mean_scale = torch.mean(eta, axis=-1).repeat(int(config["num_genes"]),1).T
     c_scaled = c * mean_scale.unsqueeze(0)
@@ -129,7 +129,7 @@ def sample_W(adata, num_samples=(1,)):
     
     pi, _ = create_z_pi(adata, config)
     
-    W = TruncatedNormal(pi @ echidna.eta_ground_truth, 0.05, lower=0).sample(num_samples)
+    W = TruncatedNormal(pi @ echidna.eta_posterior, 0.05, lower=0).sample(num_samples)
     W = W.squeeze()
     del echidna
     return W
@@ -142,10 +142,10 @@ def sample_c(adata, num_samples=(1,)) -> torch.Tensor:
     echidna = load_model(adata)
     
     eta = dist.MultivariateNormal(
-        echidna.eta_ground_truth.expand(config["num_clusters"], -1).T,
-        covariance_matrix=echidna.cov_ground_truth
+        echidna.eta_posterior.expand(config["num_clusters"], -1).T,
+        covariance_matrix=echidna.cov_posterior
     ).sample()
-    c_sample = dist.Gamma(pyro.param("c_shape"), 1/echidna.eta_ground_truth)
+    c_sample = dist.Gamma(pyro.param("c_shape"), 1/echidna.eta_posterior)
     c_sample = c_sample.sample(num_samples).squeeze()
     del echidna
     return c_sample
@@ -157,8 +157,8 @@ def sample_eta(adata, num_samples=(1,)):
     echidna = load_model(adata)
     
     eta_posterior = dist.MultivariateNormal(
-        echidna.eta_ground_truth.expand(int(config["num_clusters"]), -1).T,
-        covariance_matrix=echidna.cov_ground_truth
+        echidna.eta_posterior.expand(int(config["num_clusters"]), -1).T,
+        covariance_matrix=echidna.cov_posterior
     )
     eta_samples = eta_posterior.sample(num_samples).squeeze()
     del echidna
@@ -372,11 +372,11 @@ def echidna_clones(
     
     if method == "elbow":
         dn = eta_tree_elbow_thresholding(
-            echidna.eta_ground_truth, similarity_metric=metric
+            echidna.eta_posterior, similarity_metric=metric
         )
     elif method == "cophenetic":
         dn = eta_tree_cophenetic_thresholding(
-            echidna.eta_ground_truth, similarity_metric=metric
+            echidna.eta_posterior, similarity_metric=metric
         )
     else:
         adata.uns["echidna"]["save_data"]["threshold"] = threshold
@@ -386,7 +386,7 @@ def echidna_clones(
                 "you must set `threshold` manually. Default `threshold=0`."
             )
         dn = eta_tree(
-            echidna.eta_ground_truth, similarity_metric=metric, thres=threshold
+            echidna.eta_posterior, similarity_metric=metric, thres=threshold
         )
     
     assign_clones(dn, adata)

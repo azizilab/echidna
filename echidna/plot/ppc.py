@@ -127,8 +127,8 @@ def ppc_cov(adata, learned_params, filename: str=None, difference: bool=False):
     echidna = load_model(adata)
     
     # Calculate the difference matrix
-    cov_matrix_simulated = echidna_sim.cov_ground_truth.detach().cpu().numpy()
-    cov_matrix_real = echidna.cov_ground_truth.detach().cpu().numpy()
+    cov_matrix_simulated = echidna_sim.cov_posterior.detach().cpu().numpy()
+    cov_matrix_real = echidna.cov_posterior.detach().cpu().numpy()
     cov_matrix_diff = cov_matrix_real - cov_matrix_simulated
 
     if difference:
@@ -205,24 +205,24 @@ def ppc_c(adata, learned_params, filename: str=None):
     echidna = load_model(adata)
     
     c_learned = learned_params["c"]["value"].flatten().detach().cpu().numpy()
-    c_ground_truth = echidna.c_ground_truth.flatten().detach().cpu().numpy()
-    c_learned, c_ground_truth = _sample_arrays(c_learned, c_ground_truth, seed=echidna.config.seed)
+    c_posterior = echidna.c_posterior.flatten().detach().cpu().numpy()
+    c_learned, c_posterior = _sample_arrays(c_learned, c_posterior, seed=echidna.config.seed)
     
     del echidna
     
-    slope, intercept, r_value, p_value, std_err = linregress(c_learned, c_ground_truth)
+    slope, intercept, r_value, p_value, std_err = linregress(c_learned, c_posterior)
     r_squared = r_value**2
 
-    data = pd.DataFrame({'c_learned': c_learned, 'c_ground': c_ground_truth})
+    data = pd.DataFrame({'c_learned': c_learned, 'c_posterior': c_posterior})
 
     plt.figure(figsize=(10, 6))
-    regplot = sns.regplot(data=data, x='c_learned', y='c_ground', scatter_kws={'s': 10, 'color': 'blue'}, line_kws={'color': 'red'})
+    regplot = sns.regplot(data=data, x='c_learned', y='c_posterior', scatter_kws={'s': 10, 'color': 'blue'}, line_kws={'color': 'red'})
     plt.text(0.05, 0.95, f'$R^2 = {r_squared:.4f}$', transform=plt.gca().transAxes,
              fontsize=12, verticalalignment='top')
 
-    plt.title('c fitted vs. c ground truth')
+    plt.title('c fitted vs. c posterior truth')
     plt.xlabel('c fitted')
-    plt.ylabel('c ground truth')
+    plt.ylabel('c posterior truth')
     
     if filename: plt.savefig(filename)
     plt.show()
@@ -231,18 +231,18 @@ def ppc_eta(adata, learned_params, filename: str=None):
     echidna_sim = load_model(adata, simulation=True)
     echidna = load_model(adata)
     
-    eta_learned = echidna_sim.eta_ground_truth.flatten().detach().cpu().numpy()
-    eta_ground = echidna.eta_ground_truth.flatten().detach().cpu().numpy()
+    eta_learned = echidna_sim.eta_posterior.flatten().detach().cpu().numpy()
+    eta_posterior = echidna.eta_posterior.flatten().detach().cpu().numpy()
     
-    eta_learned, eta_ground = _sample_arrays(eta_learned, eta_ground, seed=echidna.config.seed)
+    eta_learned, eta_posterior = _sample_arrays(eta_learned, eta_posterior, seed=echidna.config.seed)
     
-    slope, intercept, r_value, p_value, std_err = linregress(eta_learned, eta_ground)
+    slope, intercept, r_value, p_value, std_err = linregress(eta_learned, eta_posterior)
     r_squared = r_value**2
 
-    data = pd.DataFrame({'eta_learned': eta_learned, 'eta_ground': eta_ground})
+    data = pd.DataFrame({'eta_learned': eta_learned, 'eta_posterior': eta_posterior})
 
-    scatter = sns.scatterplot(data=data, x='eta_learned', y='eta_ground', s=50, color='blue', alpha=0.6)
-    contour = sns.kdeplot(data=data, x='eta_learned', y='eta_ground', levels=10, color='red', linewidths=1.5)
+    scatter = sns.scatterplot(data=data, x='eta_learned', y='eta_posterior', s=50, color='blue', alpha=0.6)
+    contour = sns.kdeplot(data=data, x='eta_learned', y='eta_posterior', levels=10, color='red', linewidths=1.5)
 
     plt.text(
         0.05, 0.95,
@@ -252,9 +252,9 @@ def ppc_eta(adata, learned_params, filename: str=None):
         verticalalignment='top',
     )
 
-    scatter.set_title('eta fitted vs. eta ground truth')
+    scatter.set_title('eta fitted vs. eta posterior truth')
     scatter.set_xlabel('eta fitted')
-    scatter.set_ylabel('eta ground truth')
+    scatter.set_ylabel('eta posterior truth')
 
     if filename: plt.savefig(filename)
     plt.show()

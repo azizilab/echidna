@@ -154,13 +154,13 @@ def plot_gene_dosage(
         neutral_save_path,
         index_col="eta_column_label",
     )
-    eta = model.eta_ground_truth
+    eta = model.eta_posterior
     echidna_matched_genes = adata[
         :, adata.var["echidna_matched_genes"]
     ].var.index
 
     eta = pd.DataFrame(
-        model.eta_ground_truth.T.cpu().detach().numpy(),
+        model.eta_posterior.T.cpu().detach().numpy(),
         index=echidna_matched_genes,
         # columns=[f"echidna_clone_{i}" for i in range(num_clusters)]
     )
@@ -290,20 +290,20 @@ def dendrogram(adata, elbow: bool=False, filepath: str=None):
 
     if method == "elbow":
         fig = eta_tree_elbow_thresholding(
-            echidna.eta_ground_truth,
+            echidna.eta_posterior,
             similarity_metric=metric,
             plot_dendrogram=not elbow,
             plot_elbow=elbow,
         )
     elif method == "cophenetic":
         fig = eta_tree_cophenetic_thresholding(
-            echidna.eta_ground_truth,
+            echidna.eta_posterior,
             similarity_metric=metric,
             plot_dendrogram=True,
         )
     else:
         fig = eta_tree(
-            echidna.eta_ground_truth,
+            echidna.eta_posterior,
             similarity_metric=metric,
             thres=adata.uns["echidna"]["save_data"]["threshold"],
             plot_dendrogram=True,
