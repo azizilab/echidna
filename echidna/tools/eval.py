@@ -162,7 +162,7 @@ def sample_eta(adata, num_samples=(1,)):
     )
     eta_samples = eta_posterior.sample(num_samples).squeeze()
     del echidna
-    return torch.nn.functional.softplus(eta_samples)
+    return eta_samples
 
 def sample_cov(adata, num_samples=(1,)):
     """Sample a covariance matrix from the posterior distribution.

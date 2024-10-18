@@ -360,7 +360,7 @@ def gene_dosage_effect(
     #     eta_filtered_smooth, clone_cols, n_gmm_components
     # )["neutral_value_mean"]
     
-    eta_samples = sample(adata, "eta", num_samples=(10,))
+    eta_samples = torch.nn.functional.softplus(sample(adata, "eta", num_samples=(10,)))
     c_shape = pyro.param("c_shape")
     eta_mean = model.eta_posterior.T #pyro.param("eta_mean")
     eta_mode = torch.tensor(
@@ -369,8 +369,8 @@ def gene_dosage_effect(
     )
     
     if adata.uns["echidna"]["config"]["_is_multi"]:
-        c_shape = c_shape.squeeze()
-    c_shape = c_shape.T
+        c_shape = c_shape.squeeze() # [T, G]
+    c_shape = c_shape.T             # [G, T]
     
     c_shape_expanded = c_shape[None, :, :, None]        # [1, G, T, 1]
     eta_samples_expanded = eta_samples[:, :, None, :]   # [n_samples, G, 1, C]
