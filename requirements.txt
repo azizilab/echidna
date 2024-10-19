@@ -1,0 +1,7 @@
+scanpy>=1.10
+pandas
+seaborn
+hmmlearn
+pyro-ppl>=1.9.1
+graphviz
+requests
