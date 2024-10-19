@@ -23,7 +23,6 @@ Mapping genotype to phenotype through joint probabilistic modeling of single-cel
 | `n_steps`       | `int`  | `10000`         | Maximum number of steps for Stochastic Variational Inference (SVI). |
 | `learning_rate` | `float`| `0.1`           | Learning rate for the Adam optimizer.                     |
 | `val_split`     | `float`| `0.1`           | Percentage of training data to use for validation.         |
-| `clusters`      | `str`  | `"pheno_louvain"`| Cluster label to use in `adata.obs`.                      |
 | `patience`      | `int`  | `30`            | Early stopping patience (set to >0 to enable early stopping). |
 | `device`        | `str`  | `"cuda" if is_available() else "cpu"` | Device to use for training (GPU if available, otherwise CPU). |
 | `verbose`       | `bool` | `True`          | Whether to enable logging output.                         |
