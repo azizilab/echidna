@@ -145,7 +145,7 @@ def sample_c(adata, num_samples=(1,)) -> torch.Tensor:
         echidna.eta_posterior.expand(config["num_clusters"], -1).T,
         covariance_matrix=echidna.cov_posterior
     ).sample()
-    c_sample = dist.Gamma(pyro.param("c_shape"), 1/echidna.eta_posterior)
+    c_sample = dist.Gamma(pyro.param("c_shape"), 1/eta)
     c_sample = c_sample.sample(num_samples).squeeze()
     del echidna
     return c_sample

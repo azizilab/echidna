@@ -199,6 +199,9 @@ def match_genes(adata, Wdf):
         Wdf : pd.DataFrame
             DataFrame containing copy number counts, indexed by genes.
     """
+    if Wdf.index.duplicated().any():
+        raise ValueError("Duplicate indices in W. Make sure W is uniquely indexed by genes.")
+    
     Wdf.dropna(inplace=True)
     matched_genes = adata.var.index.intersection(Wdf.index)
     adata.var["echidna_matched_genes"] = np.where(adata.var.index.isin(matched_genes), True, False)
@@ -214,6 +217,8 @@ def match_genes(adata, Wdf):
         col_name = [Wdf.name]
     if len(np.intersect1d(adata.var.columns, col_name)) == 0:
         adata.var = adata.var.merge(Wdf, left_index=True, right_index=True, how="left")
+        # display(merged_var)
+        # adata = adata[:, ]
         for c in col_name:
             logger.info(f"Added `.var[{c}]` : CN entries for genes contained in W.")
 

@@ -41,13 +41,13 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     )
     num_clusters = adata.obs[adata.uns["echidna"]["config"]["clusters"]].nunique()
     
-    # band_means_states["chrom"] = band_means_states["band"].str.extract(r"^(chr[0-9XY]+)_")[0]
+    eta_genome_merge["chrom"] = eta_genome_merge["chrom"].str.extract(r"^(chr[0-9XY]+)")[0]
     
     for i in [f"echidna_clone_{i}" for i in range(num_clusters)]:
         eta_genome_merge[i] -= neutral_states.loc[i, "neutral_value_mean"].item()
     
     chrom_counts = sort_chromosomes(
-        eta_genome_merge.groupby("chrom")["geneName"].nunique()
+        eta_genome_merge["chrom"].value_counts()
     ).cumsum()
     
     activate_plot_settings()
@@ -99,6 +99,60 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         
         if filename: fig.savefig(filename, format="png")
 
+def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, filename=None):
+    """Plot the CNV states along the genome.
+
+    Parameters
+    ----------
+        vals : list/np.ndarray
+            List of ordered copy number values (from bin_by_bands function)
+        states : list/np.ndarray
+            List of CN state calls from the HMM (get_states function)
+        chrom_coords : list
+            list of coordinates of the end of each chromosome (from bin_by_bands)
+        chroms : list
+            Ordered unique list of chromosome names
+        title : str (optional)
+            Title to label the plot
+        filename : str (optional)
+            Name of the file to save the plot
+    """
+    df = pd.DataFrame({
+        "x": np.arange(len(vals)),
+        "vals": vals,
+        "states": states,
+    })
+    
+    color_map = {"neut": "grey", "amp": "red", "del": "blue"}
+    df["color"] = df["states"].map(color_map)
+    
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(25, 5))
+    
+    # for i, row in df.iterrows():
+        # ax.axvline(x=row["x"], color=row["color"], linestyle="-", alpha=0.3, linewidth=1)
+    
+    sns.scatterplot(x="x", y="vals", hue="states", palette=color_map, data=df, legend=False, s=80, ax=ax)
+    
+    # Set the x-axis ticks and labels
+    ticks = [(chrom_coords[i-1] + chrom_coords[i])/2 if i != 0 else chrom_coords[i]/2 for i in range(len(chrom_coords))]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(chroms, rotation=30)
+    
+    # Draw vertical lines at each chromosome boundary
+    for x in chrom_coords:
+        ax.axvline(x=x, color="k", linestyle="--", linewidth=1.5)
+        
+    ax.set_xlabel("Bands")
+    ax.set_ylabel("CN")
+    
+    ax.grid(axis="x")
+    
+    if title:
+        ax.set_title(title)
+    if filename:
+        ax.figure.savefig(filename, format="png")
+        
 def plot_gene_dosage(
     adata,
     clusters: Union[int, List[int]]=None,
@@ -204,60 +258,6 @@ def plot_gene_dosage(
     if filename:
         plt.savefig(filename)
     plt.show()
-
-def _plot_cnv_helper(vals, states, chrom_coords, chroms, ax=None, title=None, filename=None):
-    """Plot the CNV states along the genome.
-
-    Parameters
-    ----------
-        vals : list/np.ndarray
-            List of ordered copy number values (from bin_by_bands function)
-        states : list/np.ndarray
-            List of CN state calls from the HMM (get_states function)
-        chrom_coords : list
-            list of coordinates of the end of each chromosome (from bin_by_bands)
-        chroms : list
-            Ordered unique list of chromosome names
-        title : str (optional)
-            Title to label the plot
-        filename : str (optional)
-            Name of the file to save the plot
-    """
-    df = pd.DataFrame({
-        "x": np.arange(len(vals)),
-        "vals": vals,
-        "states": states,
-    })
-    
-    color_map = {"neut": "grey", "amp": "red", "del": "blue"}
-    df["color"] = df["states"].map(color_map)
-    
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(25, 5))
-    
-    # for i, row in df.iterrows():
-        # ax.axvline(x=row["x"], color=row["color"], linestyle="-", alpha=0.3, linewidth=1)
-    
-    sns.scatterplot(x="x", y="vals", hue="states", palette=color_map, data=df, legend=False, s=80, ax=ax)
-    
-    # Set the x-axis ticks and labels
-    ticks = [(chrom_coords[i-1] + chrom_coords[i])/2 if i != 0 else chrom_coords[i]/2 for i in range(len(chrom_coords))]
-    ax.set_xticks(ticks)
-    ax.set_xticklabels(chroms, rotation=30)
-    
-    # Draw vertical lines at each chromosome boundary
-    for x in chrom_coords:
-        ax.axvline(x=x, color="k", linestyle="--", linewidth=1.2)
-        
-    ax.set_xlabel("Bands")
-    ax.set_ylabel("CN")
-    
-    ax.grid(axis="x")
-    
-    if title:
-        ax.set_title(title)
-    if filename:
-        ax.figure.savefig(filename, format="png")
     
 def plot_loss(losses: list, label: str, log_loss: bool=False):
     activate_plot_settings()

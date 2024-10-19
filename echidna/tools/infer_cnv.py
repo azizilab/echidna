@@ -63,7 +63,7 @@ def infer_cnv(
             logger.error(e)
             raise IOError("Must enable internet connection to fetch default genome data.")
     
-    if "chr" not in genome["band"].iloc[0]:
+    if "band" in genome.columns and "chr" not in genome["band"].iloc[0]:
         genome["band"] = genome["chrom"] + "_" + genome["band"]
     genome = sort_chromosomes(genome)
     
@@ -165,6 +165,7 @@ def _get_states(
     neutral_std=1,
     transmat_prior=1,
     startprob_prior=1,
+    n_iter=100,
     verbose=False,
     **args,
 ) -> list:
@@ -190,7 +191,7 @@ def _get_states(
         model = hmm.GaussianHMM(
             n_components=n_components,
             random_state=idx[i],
-            n_iter=150,
+            n_iter=n_iter,
             transmat_prior=transmat_prior,
             startprob_prior=startprob_prior,
         )
