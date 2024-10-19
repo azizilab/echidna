@@ -335,16 +335,24 @@ def assign_clones(dn, adata):
     adata : sc.AnnData
         Annotated data matrix.
     """
-    color_dict = dict(zip(
-        dn.get("leaves"), dn.get("leaves_color_list")
-    ))
 
     if "echidna" not in adata.uns:
         raise ValueError(
             "No echidna model has been saved for this AnnData object."
         )
+        
+    clst = dn.get('leaves_color_list')
+    cluster_count = np.unique(clst).shape[0]
+    for i in range(len(clst)):
+        if clst[i] == 'C0':
+            clst[i] = f'C{cluster_count}'
+            cluster_count += 1
+    keys = dn.get('leaves')
+    color_dict = pd.DataFrame(clst)
+    color_dict.columns = ['color']
+    color_dict.index = keys
     cluster_label = adata.uns["echidna"]["config"]["clusters"]
-    hier_colors = [color_dict[int(i)] for i in adata.obs[cluster_label]]
+    hier_colors = [color_dict.loc[int(i)][0] for i in adata.obs[cluster_label]]
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
