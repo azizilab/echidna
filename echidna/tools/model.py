@@ -39,7 +39,7 @@ class Echidna:
         gene_plate = pyro.plate('G:genes', self.config.num_genes, dim=-1, device=self.config.device)
         cluster_plate = pyro.plate('K:clusters', self.config.num_clusters, dim=-2, device=self.config.device)
 
-        clone_var_dist = dist.Gamma(1, 1).expand([self.config.num_clusters]).to_event(1)
+        clone_var_dist = dist.Gamma(1, 1).expand([self.config.num_clusters]).independent(1)
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(self.config.num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
@@ -59,7 +59,7 @@ class Echidna:
 
         # Sample W
         with gene_plate:
-            pi = pyro.deterministic("pi", pi)
+            #pi = pyro.deterministic("pi", pi)
             W = pyro.sample('W', TruncatedNormal(pi @ eta, 0.05, lower=0.), obs=W)
 
         # Sample C
@@ -69,8 +69,8 @@ class Echidna:
 
         # Sample X
         c_scale = c * torch.mean(eta,axis=1).repeat(self.config.num_genes,1).T
-        z_tmp = pyro.deterministic("z", z.to(torch.int64))
-        rate = c_scale[z_tmp] * library_size
+        #z_tmp = pyro.deterministic("z", z.to(torch.int64))
+        rate = c_scale[z.to(torch.int64)] * library_size
         X = pyro.sample('X', dist.Poisson(rate).to_event(), obs=X)
         return X, W 
 
@@ -91,7 +91,7 @@ class Echidna:
                            constraint=dist.constraints.positive)
         rate = pyro.param('scale_rate', self.config.q_shape_rate_scaler * torch.ones(self.config.num_clusters),
                           constraint=dist.constraints.positive)
-        q_clone_var = dist.Gamma(shape, rate).to_event(1)
+        q_clone_var = dist.Gamma(shape, rate).independent(1)
         q_scale = pyro.sample('scale', q_clone_var)
 
         corr_dim = self.config.num_clusters * (self.config.num_clusters - 1) // 2
@@ -123,7 +123,7 @@ class Echidna:
         cluster_plate = pyro.plate('K:clusters', num_clusters, dim=-2, device=self.config.device)
 
         # Eta covariance
-        clone_var_dist = dist.Gamma(1, 1).expand([num_clusters]).to_event(1)
+        clone_var_dist = dist.Gamma(1, 1).expand([num_clusters]).independent(1)
         scale = pyro.sample('scale', clone_var_dist)
         cov_dist = dist.LKJCholesky(num_clusters, self.config.lkj_concentration)
         cholesky_corr = pyro.sample('cholesky_corr', cov_dist)
@@ -138,7 +138,7 @@ class Echidna:
         # Sample W per time point
         with gene_plate:
             with pyro.plate("timepoints_w", num_timepoints):
-                pi = pyro.deterministic("pi", pi)
+                #pi = pyro.deterministic("pi", pi)
                 mu_w = pi @ eta
                 W = pyro.sample(f"W", TruncatedNormal(mu_w, 0.05, lower=0.), obs=W)
 
@@ -150,8 +150,8 @@ class Echidna:
 
         for t in range(num_timepoints):
             c_scale = c[t, :, :] * torch.mean(eta,axis=-1).repeat(num_genes,1).T
-            z_tmp = pyro.deterministic(f"z_{t}", z[t].to(torch.int64))
-            rate = c_scale[z_tmp[t]] * library_size[t]
+            #z_tmp = pyro.deterministic(f"z_{t}", z[t].to(torch.int64))
+            rate = c_scale[z[t].to(torch.int64)] * library_size[t]
             pyro.sample(f"X_{t}", dist.Poisson(rate).to_event(), obs=X[t])
 
     def guide_mt(self, X, W, pi, z):
@@ -169,7 +169,7 @@ class Echidna:
 
         shape = pyro.param('scale_shape', self.config.q_shape_rate_scaler * torch.ones(num_clusters), constraint=dist.constraints.positive)
         rate = pyro.param('scale_rate', self.config.q_shape_rate_scaler * torch.ones(num_clusters), constraint=dist.constraints.positive)
-        q_clone_var = dist.Gamma(shape, rate).to_event(1)
+        q_clone_var = dist.Gamma(shape, rate).independent(1)
         q_scale = pyro.sample('scale', q_clone_var)
 
         corr_dim = num_clusters * (num_clusters - 1) // 2
