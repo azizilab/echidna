@@ -70,7 +70,11 @@ def echidna_train(adata, Wdf, config=EchidnaConfig()):
     adata_match = adata[:, adata.var.echidna_matched_genes].copy()
     
     train_data = build_torch_tensors(adata_match[adata_match.obs["echidna_split"]=="train"], config)
-    val_data = build_torch_tensors(adata_match[adata_match.obs["echidna_split"]=="validation"], config)
+    
+    if config.val_split > 0:
+        val_data = build_torch_tensors(adata_match[adata_match.obs["echidna_split"]=="validation"], config)
+    else:
+        val_data = None
 
     config.num_cells = train_data[0].shape[-2]
     config.num_genes = train_data[0].shape[-1]
@@ -89,11 +93,15 @@ def train_loop(config, train_data, val_data):
     pyro.clear_param_store()
     echidna = Echidna(config)
     
-    optimizer = optim.CosineAnnealingLR({
-        "optimizer": torch.optim.Adam,
-          "optim_args": {"lr": echidna.config.learning_rate}
-          , "T_max": 250
+    # optimizer = optim.CosineAnnealingLR({
+    #     "optimizer": torch.optim.Adam,
+    #       "optim_args": {"lr": echidna.config.learning_rate}
+    #       , "T_max": 250
+    # })
+    optimizer = optim.Adam({
+        "lr": echidna.config.learning_rate
     })
+    
     elbo = Trace_ELBO()
     svi = SVI(echidna.model, echidna.guide, optimizer, loss=elbo)
     
@@ -113,30 +121,36 @@ def train_loop(config, train_data, val_data):
     for _ in iterator:
         try:
             train_elbo = svi.step(*train_data)
-            val_elbo = -predictive_log_likelihood(echidna, val_data)
+            if val_data is not None:
+                val_elbo = -predictive_log_likelihood(echidna, val_data)
         except Exception as e:
             logger.error(e)
             echidna = set_posteriors(echidna, train_data)
             return echidna
-        validation_loss.append(val_elbo)
+        if val_data is not None:
+            validation_loss.append(val_elbo)
         training_loss.append(train_elbo)
         if echidna.config.verbose:
             avg_loss = np.mean(training_loss[-8:])
-            avg_val_loss = np.mean(validation_loss[-8:])
+            if val_data is not None:
+                avg_val_loss = np.mean(validation_loss[-8:])
+            else:
+                avg_val_loss = 0.
             iterator.set_description(
                 f"training loss: {avg_loss:.4f} | "
                 f"validation loss: {avg_val_loss:.4f}"
             )
-        if early_stopping(avg_val_loss):
+        if early_stopping(avg_val_loss) and val_data is not None:
             break
-    if early_stopping.has_stopped() and echidna.config.verbose:
+    if early_stopping.has_stopped() and echidna.config.verbose and val_data is not None:
         logger.info("Early stopping has been triggered.")
     
     echidna = set_posteriors(echidna, train_data)
     
     if echidna.config.verbose:
         plot_loss(training_loss, label="training", log_loss=True)
-        plot_loss(validation_loss, label="validation", log_loss=True)
+        if val_data is not None:
+            plot_loss(validation_loss, label="validation", log_loss=True)
     
     return echidna
 
