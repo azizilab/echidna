@@ -40,7 +40,7 @@ class EchidnaConfig:
     # cluster label to use in adata.obs
     clusters: str="pheno_louvain"
     # early stopping if patience > 0
-    patience: int=30
+    patience: int=None
     # gpus if available
     device: str="cuda" if is_available() else "cpu"
     # logging
