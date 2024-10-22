@@ -8,8 +8,6 @@ from scipy.stats import linregress
 from scipy.cluster.hierarchy import linkage, leaves_list, dendrogram
 
 import torch
-import pyro
-import pyro.distributions as dist
 from pyro import render_model
 
 from echidna.tools.housekeeping import load_model, get_learned_params
