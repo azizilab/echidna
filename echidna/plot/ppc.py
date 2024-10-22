@@ -122,35 +122,58 @@ def ppc_W(adata, learned_params, filename: str=None):
     
     plot_true_vs_pred(W_learned, W_true, name="W", filename=filename)
 
-def ppc_cov(adata, learned_params, filename: str=None, difference: bool=False):
+def ppc_cov(
+    adata,
+    learned_params,
+    difference: bool=False,
+    corr: bool=False,
+    filename: str=None
+):
     echidna_sim = load_model(adata, simulation=True)
     echidna = load_model(adata)
     
     # Calculate the difference matrix
-    cov_matrix_simulated = echidna_sim.cov_posterior.detach().cpu().numpy()
-    cov_matrix_real = echidna.cov_posterior.detach().cpu().numpy()
+    cov_matrix_simulated = echidna_sim.cov_posterior
+    cov_matrix_real = echidna.cov_posterior
     cov_matrix_diff = cov_matrix_real - cov_matrix_simulated
-
-    if difference:
+    
+    if corr is True:
+        sim_std = torch.sqrt(torch.diag(cov_matrix_simulated))
+        real_std = torch.sqrt(torch.diag(cov_matrix_real))
+        
+        cov_matrix_simulated = cov_matrix_simulated / torch.outer(sim_std, sim_std)
+        cov_matrix_real = cov_matrix_real / torch.outer(real_std, real_std)
+        
+        cov_matrix_simulated[torch.isnan(cov_matrix_simulated)] = 0
+        cov_matrix_real[torch.isnan(cov_matrix_real)] = 0
+        
+        cov_matrix_diff = cov_matrix_real - cov_matrix_simulated
+    
+    cov_matrix_diff = cov_matrix_diff.detach().cpu().numpy()
+    cov_matrix_simulated = cov_matrix_simulated.detach().cpu().numpy()
+    cov_matrix_real = cov_matrix_real.detach().cpu().numpy()
+    cov_corr_title = "Correlation" if corr is True else "Covariance"
+    
+    if difference is True:
         # Create heatmaps
         plt.figure(figsize=(18, 6))
         
         # Plot the real covariance matrix
         plt.subplot(1, 3, 1)
         sns.heatmap(cov_matrix_real, cmap='coolwarm', annot=True, fmt='.2f')
-        plt.title('Covariance Matrix (Real)')
+        plt.title(f'{cov_corr_title} Matrix (Real)')
     
         # Plot the simulated covariance matrix
         plt.subplot(1, 3, 2)
         sns.heatmap(cov_matrix_simulated, cmap='coolwarm', annot=True, fmt='.2f')
-        plt.title('Covariance Matrix (Learned)')
+        plt.title(f'{cov_corr_title} Matrix (Learned)')
     
         # Plot the difference between the two covariance matrices
         plt.subplot(1, 3, 3)
         sns.heatmap(cov_matrix_diff, cmap='coolwarm', annot=True, fmt='.2f')
         plt.title('Difference (Real - Learned)')
         plt.tight_layout()
-    else:
+    elif difference is False:
         n = cov_matrix_real.shape[-1]
         df1 = pd.DataFrame(cov_matrix_simulated, columns=[f"Clst {i}" for i in range(n)], index=[f"Clst {i}" for i in range(n)])
         df2 = pd.DataFrame(cov_matrix_real, columns=[f"Clst {i}" for i in range(n)], index=[f"Clst {i}" for i in range(n)])
@@ -183,7 +206,7 @@ def ppc_cov(adata, learned_params, filename: str=None, difference: bool=False):
         dendro_col1 = dendrogram(linkage_cols, ax=ax_col_dendro1, orientation='top', no_labels=True, color_threshold=0)
         ax_col_dendro1.set_xticks([])
         ax_col_dendro1.set_yticks([])
-        ax_col_dendro1.set_title("Refitted Covariance")
+        ax_col_dendro1.set_title(f"Refitted {cov_corr_title}")
     
         # Plot heatmap for the first dataset
         sns.heatmap(df1_ordered, ax=ax_heatmap1, cbar=False, xticklabels=False, yticklabels=True)
@@ -192,11 +215,11 @@ def ppc_cov(adata, learned_params, filename: str=None, difference: bool=False):
         dendro_col2 = dendrogram(linkage_cols, ax=ax_col_dendro2, orientation='top', no_labels=True, color_threshold=0)
         ax_col_dendro2.set_xticks([])
         ax_col_dendro2.set_yticks([])
-        ax_col_dendro2.set_title("Original Covariance")
+        ax_col_dendro2.set_title(f"Original {cov_corr_title}")
     
         # Plot heatmap for the second dataset
         sns.heatmap(df2_ordered, ax=ax_heatmap2, cbar=False, xticklabels=False, yticklabels=True)
-    
+        
     if filename: plt.savefig(filename)
     plt.show()
 
