@@ -59,7 +59,7 @@ class Echidna:
 
         # Sample W
         with gene_plate:
-            #pi = pyro.deterministic("pi", pi)
+            pi = pyro.deterministic("pi", pi)
             W = pyro.sample('W', TruncatedNormal(pi @ eta, 0.05, lower=0.), obs=W)
 
         # Sample C
@@ -69,8 +69,8 @@ class Echidna:
 
         # Sample X
         c_scale = c * torch.mean(eta,axis=1).repeat(self.config.num_genes,1).T
-        #z_tmp = pyro.deterministic("z", z.to(torch.int64))
-        rate = c_scale[z.to(torch.int64)] * library_size
+        z_tmp = pyro.deterministic("z", z.to(torch.int64))
+        rate = c_scale[z_tmp] * library_size
         X = pyro.sample('X', dist.Poisson(rate).to_event(), obs=X)
         return X, W 
 
@@ -138,7 +138,7 @@ class Echidna:
         # Sample W per time point
         with gene_plate:
             with pyro.plate("timepoints_w", num_timepoints):
-                #pi = pyro.deterministic("pi", pi)
+                pi = pyro.deterministic("pi", pi)
                 mu_w = pi @ eta
                 W = pyro.sample(f"W", TruncatedNormal(mu_w, 0.05, lower=0.), obs=W)
 
@@ -150,8 +150,8 @@ class Echidna:
 
         for t in range(num_timepoints):
             c_scale = c[t, :, :] * torch.mean(eta,axis=-1).repeat(num_genes,1).T
-            #z_tmp = pyro.deterministic(f"z_{t}", z[t].to(torch.int64))
-            rate = c_scale[z[t].to(torch.int64)] * library_size[t]
+            z_tmp = pyro.deterministic(f"z_{t}", z[t].to(torch.int64))
+            rate = c_scale[z_tmp] * library_size[t]
             pyro.sample(f"X_{t}", dist.Poisson(rate).to_event(), obs=X[t])
 
     def guide_mt(self, X, W, pi, z):

@@ -5,17 +5,36 @@ Mapping genotype to phenotype through joint probabilistic modeling of single-cel
 ![Echidna](https://github.com/azizilab/echidna3/assets/73508804/cd5588f6-ab6f-4411-8f6a-47a9e4e9e6d5)
 
 
+# Examples
+
+There are four example notebooks:
+
+1. 1-single-timepoint.ipynb
+2. 2-multi-timepoint.ipynb
+3. 3-infer-gene-dosage.ipynb
+4. 4-echidna-model.ipynb
+
+The notebooks are meant to be run sequentially, and they build off of each other.
+
+Notebook 1 introduces you to the package - preparing your data, setting hyperparamters, performing posterior predictive checks - with data collected from a single point in time.
+
+In notebook 2, we look at a multi-timepoint setting, where we have paired single-cell and WGS data collected over time. 
+
+The saved model runs from notebook 2 will be used in notebook 3, where you will see how to infer amplifications and deletions by cluster of genes across a given genome. This notebook also shows you how to calculate and plot gene dosage effect with Echidna.
+
+Notebook 4 is meant to show you how to do more custom work with the model. We package together many functions for your convenience, but this notebook will show you how to work directly with the model for the experiments not covered in the package. Some [Pyro](https://pyro.ai/) knowledge is assumed.
+
 # Echidna Configuration Settings
 
-## .OBS LABELS
+## `.obs` Labels
 
 | Setting        | Type   | Default         | Description                               |
 |----------------|--------|-----------------|-------------------------------------------|
 | `timepoint_label` | `str`  | `"timepoint"`    | Label for timepoints in the data.         |
 | `counts_layer`    | `str`  | `"counts"`       | Name of the counts layer in the data.     |
-| `clusters`        | `str`  | `"leiden"`       | Clustering method used in the data.       |
+| `clusters`        | `str`  | `"leiden"`       | Clustering method used in the data. This can also be celltype annotations, if you have them.       |
 
-## TRAINING PARAMETERS
+## Training Parameters
 
 | Setting         | Type   | Default         | Description                                               |
 |-----------------|--------|-----------------|-----------------------------------------------------------|
@@ -27,7 +46,7 @@ Mapping genotype to phenotype through joint probabilistic modeling of single-cel
 | `device`        | `str`  | `"cuda" if is_available() else "cpu"` | Device to use for training (GPU if available, otherwise CPU). |
 | `verbose`       | `bool` | `True`          | Whether to enable logging output.                         |
 
-## MODEL HYPERPARAMETERS
+## Model Hyperparameters
 
 | Setting              | Type    | Default   | Description                                                                        |
 |----------------------|---------|-----------|------------------------------------------------------------------------------------|

@@ -65,7 +65,13 @@ def echidna_train(adata, Wdf, config=EchidnaConfig()):
     
     match_genes(adata, Wdf)
     
-    adata.obs.loc[:,config.clusters] = adata.obs.loc[:,config.clusters].astype(int)    
+    cluster_dtype = adata.obs.loc[:, config.clusters].dtype
+    if not pd.api.types.is_integer_dtype(cluster_dtype):
+        adata.obs.loc[:, config.clusters + "_categorical"] = adata.obs.loc[:, config.clusters].copy()
+        logger.warning(
+            f"`{config.clusters}` changed to `{config.clusters}_categorical`."
+        )
+    adata.obs.loc[:, config.clusters] = pd.Categorical(adata.obs.loc[:,config.clusters]).codes
     
     adata_match = adata[:, adata.var.echidna_matched_genes].copy()
     
