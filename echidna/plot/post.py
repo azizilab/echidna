@@ -14,7 +14,7 @@ from echidna.tools.eval import (
     eta_tree_elbow_thresholding,
     eta_tree_cophenetic_thresholding,
 )
-from echidna.tools.infer_cnv import gene_dosage_effect
+from echidna.tools.infer_gd import gene_dosage_effect
 from echidna.tools.housekeeping import load_model
 from echidna.tools.data import sort_chromosomes, filter_low_var_genes
 from echidna.plot.utils import save_figure, activate_plot_settings
@@ -43,7 +43,9 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     
     eta_genome_merge["chrom"] = eta_genome_merge["chrom"].str.extract(r"^(chr[0-9XY]+)")[0]
     
-    for i in [f"echidna_clone_{i}" for i in range(num_clusters)]:
+    cols = []
+    for i in [f"echidna_clone_{x}" for x in range(num_clusters)]:
+        cols.append(i)
         eta_genome_merge[i] -= neutral_states.loc[i, "neutral_value_mean"].item()
     
     chrom_counts = sort_chromosomes(
@@ -67,9 +69,7 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     elif c == "all":
         fig, ax = plt.subplots(figsize=(20,5), nrows=1, ncols=1)
         
-        eta_genome_merge = eta_genome_merge[
-            [f"echidna_clone_{i}" for i in range(num_clusters)]
-        ]
+        eta_genome_merge = eta_genome_merge[cols]
         eta_genome_merge.columns = [f"{i}" for i in range(num_clusters)]
         sns.heatmap(eta_genome_merge.T, cmap="bwr", ax=ax, vmin=-2, vmax=2)
         
