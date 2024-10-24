@@ -51,7 +51,7 @@ Notebook 4 is meant to show you how to do more custom work with the model. We pa
 | Setting              | Type    | Default   | Description                                                                        |
 |----------------------|---------|-----------|------------------------------------------------------------------------------------|
 | `inverse_gamma`       | `bool`  | `False`   | Whether to use inverse gamma for noisier data.                                     |
-| `lkj_concentration`   | `float` | `1.0`     | Concentration parameter of LKJ prior. Values < 1.0 result in more diagonal covariance matrices. |
+| `lkj_concentration`   | `float` | `1.0`     | Concentration parameter of LKJ prior. Values > 1.0 result in more diagonal covariance matrices. |
 | `q_shape_rate_scaler` | `float` | `10.0`    | Scaler for the shape and rate parameters of the covariance diagonal for variational inference. |
 | `q_corr_init`         | `float` | `0.01`    | Initial scale of the variational correlation.                                      |
 | `q_cov_scaler`        | `float` | `0.01`    | Scaler for the covariance of the variational correlation.                          |
