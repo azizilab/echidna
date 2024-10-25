@@ -402,3 +402,68 @@ def echidna_clones(
         "Added `.obs['echidna_clones']`: the learned clones from eta."
     )
     del echidna
+
+def echidna_status(adata, threshold: float = 0.):
+    
+    if "echidna_clones" not in adata.obs.columns:
+        raise ValueError("Must run `ec.tl.echidna_clones` first.")
+
+    timepoint_label = adata.uns["echidna"]["config"]["timepoint_label"]
+
+    # Group by echidna_clones and timepoint_label to get
+    # num cells in each clone/timepoint
+    clones_gb = adata.obs.groupby(
+        by=["echidna_clones", timepoint_label]
+    ).size().reset_index(name="clone_tp_counts")
+
+    # Group by timepoint_label to get total counts at each timepoint
+    tp_gb = clones_gb.groupby(
+        timepoint_label
+    )["clone_tp_counts"].sum().reset_index(name="tp_counts")
+
+    # Merge the data to get timepoint counts for each row in clone/timepoint count
+    clones_gb = clones_gb.merge(
+        tp_gb,
+        left_on=timepoint_label,
+        right_on=timepoint_label,
+    )
+
+    # Calculate the ratio of clone/timepoint counts to timepoint total counts (eg "pre / pre_total")
+    clones_gb["tp_ratio"] = clones_gb["clone_tp_counts"] / clones_gb["tp_counts"]
+    
+    # Map integer order to timepoints for sorting
+    clones_gb["timepoint_order"] = clones_gb[timepoint_label].map(
+        adata.uns["echidna"]["timepoint_order"]
+    )
+
+    # Sort by echidna_clones and timepoint_order, ascending=True since we get t+1/t
+    clones_gb = clones_gb.sort_values(by=["echidna_clones", "timepoint_order"])
+
+    # Define a function to calculate the status_score and status for each clone
+    def calculate_status(group):
+        # sort again to be sure the shift is done correctly
+        group = group.sort_values(by="timepoint_order")
+        # Generalized version of "ons / pres". Shift lets us calculate t+1/t
+        group["status_score"] = np.log2(group["tp_ratio"] / group["tp_ratio"].shift(-1)).ffill()
+        group["echidna_status"] = np.where(
+            group["status_score"] > threshold, "growing", "stable"
+        )
+        group["echidna_status"] = np.where(
+            group["status_score"] < -threshold, "shrinking", group["echidna_status"]
+        )
+        return group
+
+    # Apply the function to each group of echidna_clones
+    result = clones_gb.groupby("echidna_clones").apply(calculate_status).reset_index(drop=True)
+
+    # Merge the status back into adata.obs
+    adata.obs = adata.obs.merge(
+        result.loc[:, ["echidna_clones", timepoint_label, "echidna_status"]],
+        on=["echidna_clones", timepoint_label],
+        how="left"
+    )
+    
+    logger.info(
+        "Added `echidna_status` to `.obs` : "
+        "Labeling Echidna clones as growing, shrinking, or stable."
+    )
