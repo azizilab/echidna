@@ -407,6 +407,8 @@ def echidna_status(adata, threshold: float = 0.):
     
     if "echidna_clones" not in adata.obs.columns:
         raise ValueError("Must run `ec.tl.echidna_clones` first.")
+    if "echidna_status" in adata.obs.columns:
+        adata.obs.drop(columns="echidna_status", inplace=True)
 
     timepoint_label = adata.uns["echidna"]["config"]["timepoint_label"]
 
@@ -451,6 +453,7 @@ def echidna_status(adata, threshold: float = 0.):
         group["echidna_status"] = np.where(
             group["status_score"] < -threshold, "shrinking", group["echidna_status"]
         )
+        group["echidna_status"] = pd.Categorical(group["echidna_status"])
         return group
 
     # Apply the function to each group of echidna_clones
@@ -461,8 +464,10 @@ def echidna_status(adata, threshold: float = 0.):
         result.loc[:, ["echidna_clones", timepoint_label, "echidna_status"]],
         on=["echidna_clones", timepoint_label],
         how="left"
-    )
+    ).set_index(adata.obs.index)
     
+    adata.obs["echidna_status"] = adata.obs["echidna_status"].astype("category")
+
     logger.info(
         "Added `echidna_status` to `.obs` : "
         "Labeling Echidna clones as growing, shrinking, or stable."
