@@ -361,7 +361,7 @@ def gene_dosage_effect(
     #     eta_filtered_smooth, clone_cols, n_gmm_components
     # )["neutral_value_mean"]
     
-    eta_samples = sample(adata, "eta", num_samples=(10,))
+    eta_samples = sample(adata, "eta")
     c_shape = pyro.param("c_shape")
     eta_mean = model.eta_posterior.T #pyro.param("eta_mean")
     eta_mode = torch.tensor(

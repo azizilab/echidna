@@ -150,14 +150,14 @@ def sample_c(adata, num_samples=(1,)) -> torch.Tensor:
     del echidna
     return c_sample
 
-def sample_eta(adata, num_samples=(1,)):
+def sample_eta(adata, num_samples=1000):
     """Sample eta from posterior
     """
     config = adata.uns["echidna"]["config"]
     echidna = load_model(adata)
     
     eta_posterior = dist.MultivariateNormal(
-        echidna.eta_posterior.expand(int(config["num_clusters"]), -1).T,
+        echidna.eta_posterior.T,
         covariance_matrix=echidna.cov_posterior
     )
     eta_samples = eta_posterior.sample(num_samples).squeeze()
