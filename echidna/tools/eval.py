@@ -160,7 +160,7 @@ def sample_eta(adata, num_samples=1000):
         echidna.eta_posterior.T,
         covariance_matrix=echidna.cov_posterior
     )
-    eta_samples = eta_posterior.sample(num_samples).squeeze()
+    eta_samples = eta_posterior.sample([num_samples,]).squeeze()
     del echidna
     return torch.nn.functional.softplus(eta_samples)
 
