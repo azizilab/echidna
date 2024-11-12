@@ -234,13 +234,13 @@ def ppc_c(adata, learned_params, filename: str=None):
     del echidna
     
     slope, intercept, r_value, p_value, std_err = linregress(c_learned, c_posterior)
-    r_squared = r_value**2
+    r_squared = r_value
 
     data = pd.DataFrame({'c_learned': c_learned, 'c_posterior': c_posterior})
 
     plt.figure(figsize=(10, 6))
     regplot = sns.regplot(data=data, x='c_learned', y='c_posterior', scatter_kws={'s': 10, 'color': 'blue'}, line_kws={'color': 'red'})
-    plt.text(0.05, 0.95, f'$R^2 = {r_squared:.4f}$', transform=plt.gca().transAxes,
+    plt.text(0.05, 0.95, f'$Pearson R = {r_squared:.4f}$', transform=plt.gca().transAxes,
              fontsize=12, verticalalignment='top')
 
     plt.title('c fitted vs. c posterior truth')
@@ -260,7 +260,7 @@ def ppc_eta(adata, learned_params, filename: str=None):
     eta_learned, eta_posterior = _sample_arrays(eta_learned, eta_posterior, seed=echidna.config.seed)
     
     slope, intercept, r_value, p_value, std_err = linregress(eta_learned, eta_posterior)
-    r_squared = r_value**2
+    r_squared = r_value
 
     data = pd.DataFrame({'eta_learned': eta_learned, 'eta_posterior': eta_posterior})
 
@@ -269,7 +269,7 @@ def ppc_eta(adata, learned_params, filename: str=None):
 
     plt.text(
         0.05, 0.95,
-        f'$R^2 = {r_squared:.4f}$',
+        f'$Pearson R = {r_squared:.4f}$',
         transform=scatter.transAxes,
         fontsize=12,
         verticalalignment='top',
