@@ -127,7 +127,8 @@ def ppc_cov(
     learned_params,
     difference: bool=False,
     corr: bool=False,
-    filename: str=None
+    filename: str=None,
+    cmap: str='plasma_r'
 ):
     echidna_sim = load_model(adata, simulation=True)
     echidna = load_model(adata)
@@ -160,17 +161,17 @@ def ppc_cov(
         
         # Plot the real covariance matrix
         plt.subplot(1, 3, 1)
-        sns.heatmap(cov_matrix_real, cmap='coolwarm', annot=True, fmt='.2f')
+        sns.heatmap(cov_matrix_real, cmap=cmap, annot=True, fmt='.2f')
         plt.title(f'{cov_corr_title} Matrix (Real)')
     
         # Plot the simulated covariance matrix
         plt.subplot(1, 3, 2)
-        sns.heatmap(cov_matrix_simulated, cmap='coolwarm', annot=True, fmt='.2f')
+        sns.heatmap(cov_matrix_simulated, cmap=cmap, annot=True, fmt='.2f')
         plt.title(f'{cov_corr_title} Matrix (Learned)')
     
         # Plot the difference between the two covariance matrices
         plt.subplot(1, 3, 3)
-        sns.heatmap(cov_matrix_diff, cmap='coolwarm', annot=True, fmt='.2f')
+        sns.heatmap(cov_matrix_diff, cmap=cmap, annot=True, fmt='.2f')
         plt.title('Difference (Real - Learned)')
         plt.tight_layout()
     elif difference is False:
@@ -209,7 +210,7 @@ def ppc_cov(
         ax_col_dendro1.set_title(f"Refitted {cov_corr_title}")
     
         # Plot heatmap for the first dataset
-        sns.heatmap(df1_ordered, ax=ax_heatmap1, cbar=False, xticklabels=False, yticklabels=True)
+        sns.heatmap(df1_ordered, ax=ax_heatmap1, cmap=cmap, cbar=False, xticklabels=False, yticklabels=True)
     
         # Plot dendrogram for columns of the second dataset
         dendro_col2 = dendrogram(linkage_cols, ax=ax_col_dendro2, orientation='top', no_labels=True, color_threshold=0)
@@ -218,7 +219,7 @@ def ppc_cov(
         ax_col_dendro2.set_title(f"Original {cov_corr_title}")
     
         # Plot heatmap for the second dataset
-        sns.heatmap(df2_ordered, ax=ax_heatmap2, cbar=False, xticklabels=False, yticklabels=True)
+        sns.heatmap(df2_ordered, ax=ax_heatmap2, cmap=cmap, cbar=False, xticklabels=False, yticklabels=True)
         
     if filename: plt.savefig(filename)
     plt.show()
