@@ -68,6 +68,7 @@ def infer_cnv(
     genome = sort_chromosomes(genome)
     
     echidna = load_model(adata)
+    random_state = echidna.config.seed
     eta = echidna.eta_posterior
     
     del echidna
@@ -93,7 +94,7 @@ def infer_cnv(
     eta_filtered_smooth = gaussian_filter1d(
         eta_filtered, sigma=smoother_sigma, axis=0, radius=smoother_radius
     )
-    neutral_states = get_neutral_state(eta_filtered_smooth, clone_cols, **kwargs)
+    neutral_states = get_neutral_state(eta_filtered_smooth, clone_cols, random_state=random_state, **kwargs)
     
     # User has choice for HMM on filtering genes and gaussian smoothing
     if filter_genes:
@@ -259,13 +260,14 @@ def get_neutral_state(
     eta_column_labels,
     n_gmm_components=5,
     plot_gmm=False,
+    random_state=None,
     **args,
 ) -> pd.DataFrame:
     gmm_means_df = pd.DataFrame(columns=["eta_column_label", "mode", "neutral_value_mean", "neutral_value_std"])
     
     for i, col in enumerate(eta_column_labels):
         cur_vals_filtered = eta_filtered_smooth[:, i].reshape(-1,1)
-        gmm = GaussianMixture(n_components=n_gmm_components).fit(cur_vals_filtered)
+        gmm = GaussianMixture(n_components=n_gmm_components, random_state=random_state).fit(cur_vals_filtered)
         labels = gmm.predict(cur_vals_filtered)
         neut_component = mode(labels, keepdims=False).mode
 
