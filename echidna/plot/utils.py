@@ -58,7 +58,7 @@ def activate_plot_settings():
     else:
         mpl.rcParams["savefig.dpi"] = 400
         
-    sns.set_theme(style="darkgrid", rc={"grid.color": ".6", "grid.linestyle": ":"})
+    sns.set_theme(style="white", rc={"grid.color": ".6", "grid.linestyle": ":"})
     sns.set_context("paper", font_scale=1.)
     
     mpl.rcParams["axes.grid"] = True
