@@ -1,4 +1,4 @@
-# echidna.tools.infer_cnv.py
+# echidna.tools.infer_gd.py
 
 import logging, os, re, sys
 
@@ -23,20 +23,46 @@ from echidna.utils import get_logger, ECHIDNA_GLOBALS
 logger = get_logger(__name__)
 
 def cnv_results(adata: sc.AnnData) -> pd.DataFrame:
-    infer_cnv_save_path = None
-    if "infer_cnv" not in adata.uns["echidna"]["save_data"]:
+    echi_cnv_save_path = None
+    if "echi_cnv" not in adata.uns["echidna"]["save_data"]:
         raise ValueError(
-            "Must run `ec.tl.infer_cnv` first."
+            "Must run `ec.tl.echi_cnv` first."
         )
-    infer_cnv_save_path = adata.uns["echidna"]["save_data"]["infer_cnv"]
-    if not os.path.exists(infer_cnv_save_path):
+    echi_cnv_save_path = adata.uns["echidna"]["save_data"]["echi_cnv"]
+    if not os.path.exists(echi_cnv_save_path):
         raise ValueError(
-            "Saved results not found. Run `ec.tl.infer_cnv` first."
+            "Saved results not found. Run `ec.tl.echi_cnv` first."
         )
+    echi_cnv = pd.read_csv(echi_cnv_save_path, index_col="geneName")
     
-    return pd.read_csv(infer_cnv_save_path)
+    neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
+    neutral_states = pd.read_csv(
+        neutral_save_path,
+        index_col="eta_column_label",
+    )
+    num_clusters = adata.obs[adata.uns["echidna"]["config"]["clusters"]].nunique()
+    clone_cols = [f"echidna_clone_{x}" for x in range(num_clusters)]
+    
+    echidna = load_model(adata)
+    eta = echidna.eta_posterior
+    del echidna
+    
+    echidna_matched_genes = adata[:, adata.var["echidna_matched_genes"]].var.index
+    eta = eta.T.detach().cpu().numpy()
+    eta = pd.DataFrame(eta).set_index(echidna_matched_genes)
+    clone_cols = [f"echidna_clone_{c}" for c in range(eta.shape[1])]
+    eta.columns = clone_cols
 
-def infer_cnv(
+    common_genes = echi_cnv.index.intersection(eta.index)
+    eta = eta.loc[common_genes]
+    
+    for i, c in enumerate(clone_cols):
+        echi_cnv[c] = eta[c]
+        echi_cnv[c] -= neutral_states.loc[c, "neutral_value_mean"].item()
+    
+    return echi_cnv
+
+def echi_cnv(
     adata: sc.AnnData,
     genome: pd.DataFrame=None,
     gaussian_smoothing: bool=True,
@@ -49,16 +75,23 @@ def infer_cnv(
     if genome is None:
         try:
             genome = pd.read_csv(
-                "https://web.cs.ucla.edu/~wob/data/GRCh38_cytoband_gencodeV46.csv"
+                "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/wgEncodeGencodeCompV46.txt.gz",
+                delimiter="\t",
+                header=None,
+                names=["gene_id", "transcript_id", "chrom", "strand", "txStart", "txEnd", "cdsStart", "cdsEnd", "exonCount", "exonStarts", "exonEnds", "score", "geneName", "cdsStartStat", "cdsEndStat", "exonFrames"],
             )
+            genome = genome.groupby(["chrom", "geneName"]).agg(
+                txStart=("txStart", "min"),
+                txEnd=("txEnd", "max")
+            ).reset_index()
             logger.info(
                 "`genome` not set, defaulting to hg38"
-                "cytoBands and wgEncodeGencodeCompV46."
+                "wgEncodeGencodeCompV46."
             )
         except Exception as e:
             logger.info(
                 "`genome` not set, defaulting to hg38"
-                "cytoBands and wgEncodeGencodeCompV46."
+                "wgEncodeGencodeCompV46."
             )
             logger.error(e)
             raise IOError("Must enable internet connection to fetch default genome data.")
@@ -133,7 +166,7 @@ def infer_cnv(
             **kwargs
         )
 
-    infer_cnv_save_path = os.path.join(
+    echi_cnv_save_path = os.path.join(
         ECHIDNA_GLOBALS["save_folder"],
         adata.uns["echidna"]["run_id"],
         "_echidna_cnv.csv",
@@ -145,17 +178,17 @@ def infer_cnv(
     )
     
     eta_genome_merge.to_csv(
-        infer_cnv_save_path,
+        echi_cnv_save_path,
         index=False,
     )
     neutral_states.to_csv(
         neutrals_save_path,
         index=True,
     )
-    adata.uns["echidna"]["save_data"]["infer_cnv"] = infer_cnv_save_path
+    adata.uns["echidna"]["save_data"]["echi_cnv"] = echi_cnv_save_path
     adata.uns["echidna"]["save_data"]["gmm_neutrals"] = neutrals_save_path
     logger.info(
-        "Added `.uns['echidna']['save_data']['infer_cnv']` : Path to CNV inference results.\n"
+        "Added `.uns['echidna']['save_data']['echi_cnv']` : Path to CNV inference results.\n"
         "Added `.uns['echidna']['save_data']['gmm_neutrals']` : Path to Echidna cluster neutral value results."
     )
 
@@ -333,11 +366,11 @@ def gene_dosage_effect(
     
     # Retrieve save data from tools functions
     if "gmm_neutrals" not in adata.uns["echidna"]["save_data"]:
-        raise ValueError("Must run `ec.tl.infer_cnv` first.")
+        raise ValueError("Must run `ec.tl.echi_cnv` first.")
     neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
     if not os.path.exists(neutral_save_path):
         raise ValueError(
-            "Saved results not found. Run `ec.tl.infer_cnv` first."
+            "Saved results not found. Run `ec.tl.echi_cnv` first."
         )
     neutral_states = pd.read_csv(neutral_save_path)
     

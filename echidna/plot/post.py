@@ -26,13 +26,13 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     c = "all" if c is None else c
     
     # Retrieve save data from tools functions
-    if "infer_cnv" not in adata.uns["echidna"]["save_data"]:
-        raise ValueError("Must run `ec.tl.infer_cnv` first.")
-    file_save_path = adata.uns["echidna"]["save_data"]["infer_cnv"]
+    if "echi_cnv" not in adata.uns["echidna"]["save_data"]:
+        raise ValueError("Must run `ec.tl.echi_cnv` first.")
+    file_save_path = adata.uns["echidna"]["save_data"]["echi_cnv"]
     neutral_save_path = adata.uns["echidna"]["save_data"]["gmm_neutrals"]
     if not os.path.exists(file_save_path):
         raise ValueError(
-            "Saved results not found. Run `ec.tl.infer_cnv` first."
+            "Saved results not found. Run `ec.tl.echi_cnv` first."
         )
     eta_genome_merge = pd.read_csv(file_save_path)
     neutral_states = pd.read_csv(
