@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import torch
 import pyro
+from typing import List, Any, Dict, Optional
 
 from scipy.stats import ttest_ind, mode
 from scipy.ndimage import gaussian_filter1d
@@ -66,6 +67,8 @@ def echi_cnv(
     adata: sc.AnnData,
     genome: pd.DataFrame=None,
     gaussian_smoothing: bool=True,
+    n_hmm_components: int=5,
+    n_gmm_components: int=5,
     filter_genes: bool=True,
     filter_quantile: float=.7,
     smoother_sigma: float=6,
@@ -80,6 +83,7 @@ def echi_cnv(
                 header=None,
                 names=["gene_id", "transcript_id", "chrom", "strand", "txStart", "txEnd", "cdsStart", "cdsEnd", "exonCount", "exonStarts", "exonEnds", "score", "geneName", "cdsStartStat", "cdsEndStat", "exonFrames"],
             )
+            genome["chrom"] = "chr" + genome.chrom.str.extract(r"chr(\d+|X|Y)")
             genome = genome.groupby(["chrom", "geneName"]).agg(
                 txStart=("txStart", "min"),
                 txEnd=("txEnd", "max")
@@ -127,7 +131,13 @@ def echi_cnv(
     eta_filtered_smooth = gaussian_filter1d(
         eta_filtered, sigma=smoother_sigma, axis=0, radius=smoother_radius
     )
-    neutral_states = get_neutral_state(eta_filtered_smooth, clone_cols, random_state=random_state, **kwargs)
+    neutral_states = _get_neutral_state(
+        eta_filtered_smooth,
+        clone_cols,
+        n_components=n_gmm_components,
+        random_state=random_state,
+        **kwargs
+    )
     
     # User has choice for HMM on filtering genes and gaussian smoothing
     if filter_genes:
@@ -161,6 +171,7 @@ def echi_cnv(
     for c in clone_cols:
         eta_genome_merge[f"states_{c}"] = _get_states(
             eta_genome_merge.loc[:, c].values,
+            n_components=n_hmm_components,
             neutral_mean=neutral_states.loc[c, "neutral_value_mean"].item(),
             neutral_std=neutral_states.loc[c, "neutral_value_std"].item(),
             **kwargs
@@ -193,16 +204,16 @@ def echi_cnv(
     )
 
 def _get_states(
-    vals,
-    n_components=5,
-    neutral_mean=2,
-    neutral_std=1,
-    transmat_prior=1,
-    startprob_prior=1,
-    n_iter=100,
-    verbose=False,
-    **args,
-) -> list:
+    vals: np.ndarray,
+    n_components: int=5,
+    neutral_mean: float=2.0,
+    neutral_std: float=1.0,
+    transmat_prior: Optional[np.ndarray]=1,
+    startprob_prior: Optional[np.ndarray]=1,
+    n_iter: int=100,
+    verbose: bool=False,
+    **args: Dict[str, Any],
+) -> List[str]:
     """Implements a Gaussian HMM to call copy number states smoothing along the genome
     
     Parameters
@@ -288,19 +299,19 @@ def _get_states(
 
     return cnvs
 
-def get_neutral_state(
-    eta_filtered_smooth,
-    eta_column_labels,
-    n_gmm_components=5,
-    plot_gmm=False,
-    random_state=None,
+def _get_neutral_state(
+    eta_filtered_smooth: np.ndarray,
+    eta_column_labels: List[str],
+    n_components: int=5,
+    plot_gmm: bool=False,
+    random_state: int=None,
     **args,
 ) -> pd.DataFrame:
     gmm_means_df = pd.DataFrame(columns=["eta_column_label", "mode", "neutral_value_mean", "neutral_value_std"])
     
     for i, col in enumerate(eta_column_labels):
         cur_vals_filtered = eta_filtered_smooth[:, i].reshape(-1,1)
-        gmm = GaussianMixture(n_components=n_gmm_components, random_state=random_state).fit(cur_vals_filtered)
+        gmm = GaussianMixture(n_components=n_components, random_state=random_state).fit(cur_vals_filtered)
         labels = gmm.predict(cur_vals_filtered)
         neut_component = mode(labels, keepdims=False).mode
 
@@ -392,7 +403,7 @@ def gene_dosage_effect(
     # eta_filtered_smooth = gaussian_filter1d(
     #     eta, sigma=smoother_sigma, axis=0, radius=smoother_radius
     # )
-    # eta_mode = get_neutral_state(
+    # eta_mode = _get_neutral_state(
     #     eta_filtered_smooth, clone_cols, n_gmm_components
     # )["neutral_value_mean"]
     
