@@ -8,19 +8,53 @@ import pandas as pd
 import os
 from typing import Union, List
 import torch
+from scipy.ndimage import gaussian_filter1d
 
 from echidna.tools.eval import (
     eta_tree,
     eta_tree_elbow_thresholding,
     eta_tree_cophenetic_thresholding,
 )
-from echidna.tools.infer_gd import gene_dosage_effect
+from echidna.tools.infer_gd import gene_dosage_effect, cnv_results
 from echidna.tools.housekeeping import load_model
 from echidna.tools.data import sort_chromosomes, filter_low_var_genes
 from echidna.plot.utils import save_figure, activate_plot_settings
 from echidna.utils import get_logger
 
 logger = get_logger(__name__)
+
+def plot_eta(adata, filename: str=None):
+    cluster_label = adata.uns["echidna"]["config"]["clusters"]
+    
+    clust_order = []
+    for i in np.unique(adata.obs["echidna_clones"]):
+        clust_order.extend(
+            adata.obs.loc[
+                adata.obs["echidna_clones"]==i,
+                cluster_label,
+            ].unique()
+        )
+    eta = cnv_results(adata)
+    num_clusters = adata.obs[cluster_label].nunique()
+    eta_vals = eta[[f"echidna_clone_{x}" for x in range(num_clusters)]]
+    
+    eta_vals.columns = eta_vals.columns.str.extract(r'(\d+)$')[0].astype(int)
+    eta_vals = eta_vals[clust_order]
+    
+    fig, ax = plt.subplots(figsize=(25, 5))
+    smoothed_eta = gaussian_filter1d(eta_vals.T, sigma=6, axis=1, radius=8)
+    sns.heatmap(pd.DataFrame(smoothed_eta, index=eta_vals.columns, columns=eta_vals.index), cmap='coolwarm', vmin=-2, vmax=2, ax=ax)
+    chrom_counts = sort_chromosomes(
+        eta["chrom"].value_counts()
+    ).cumsum()
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ticks = [(chrom_counts[i-1] + chrom_counts[i])/2 if i != 0 else chrom_counts[i]/2 for i in range(len(chrom_counts))]
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(chrom_counts.index, rotation=30)
+    
+    for x in chrom_counts:
+        ax.axvline(x=x, color="k", linestyle="--", linewidth=1.5)
 
 def plot_cnv(adata, c: str=None, filename: str=None):
     c = "all" if c is None else c
@@ -39,7 +73,8 @@ def plot_cnv(adata, c: str=None, filename: str=None):
         neutral_save_path,
         index_col="eta_column_label",
     )
-    num_clusters = adata.obs[adata.uns["echidna"]["config"]["clusters"]].nunique()
+    cluster_label = adata.uns["echidna"]["config"]["clusters"]
+    num_clusters = adata.obs[cluster_label].nunique()
     
     eta_genome_merge["chrom"] = eta_genome_merge["chrom"].str.extract(r"^(chr[0-9XY]+)")[0]
     
@@ -51,6 +86,15 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     chrom_counts = sort_chromosomes(
         eta_genome_merge["chrom"].value_counts()
     ).cumsum()
+    
+    clust_order = []
+    for i in np.unique(adata.obs["echidna_clones"]):
+        clust_order.extend(
+            ["echidna_clone_" + str(x) for x in adata.obs.loc[
+                adata.obs["echidna_clones"] == i,
+                cluster_label,
+            ].unique()]
+        )
     
     activate_plot_settings()
     if c != "all":
@@ -69,10 +113,11 @@ def plot_cnv(adata, c: str=None, filename: str=None):
     elif c == "all":
         fig, ax = plt.subplots(figsize=(20,5), nrows=1, ncols=1)
         
-        eta_genome_merge = eta_genome_merge[cols]
-        eta_genome_merge.columns = [f"{i}" for i in range(num_clusters)]
+        eta_genome_merge = eta_genome_merge[clust_order]
+        eta_genome_merge.columns = eta_genome_merge.columns.str.extract(r'(\d+)$')[0].astype(int)
         sns.heatmap(eta_genome_merge.T, cmap="bwr", ax=ax, vmin=-2, vmax=2)
-        
+        ax.set_xlabel("")
+        ax.set_ylabel("")
         # Set the x-axis ticks and labels
         ticks = [(chrom_counts[i-1] + chrom_counts[i])/2 if i != 0 else chrom_counts[i]/2 for i in range(len(chrom_counts))]
         ax.set_xticks(ticks)
