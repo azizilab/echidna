@@ -170,9 +170,8 @@ def load_model(adata, save_folder=None, simulation=False):
     model_config = EchidnaConfig(**adata.uns["echidna"]["config"])
     model = Echidna(model_config)
     model_run_id = adata.uns["echidna"][run_id_key]
-    save_folder = ECHIDNA_GLOBALS["save_folder"] if save_folder == None else save_folder
-    full_path = os.path.join(save_folder, model_run_id) if save_folder == None else save_folder
-    
+    save_folder_path = ECHIDNA_GLOBALS["save_folder"] if save_folder is None else save_folder
+    full_path = os.path.join(save_folder_path, model_run_id) if save_folder is None else save_folder
     model = torch.load(os.path.join(full_path, "echidna_model.pt"), weights_only=False)
     
     pyro.clear_param_store()
