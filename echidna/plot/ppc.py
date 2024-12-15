@@ -244,17 +244,23 @@ def ppc_c(adata, learned_params, filename: str=None):
 
     data = pd.DataFrame({'c_learned': c_learned, 'c_posterior': c_posterior})
 
-    plt.figure(figsize=(10, 6))
-    regplot = sns.regplot(data=data, x='c_learned', y='c_posterior', scatter_kws={'s': 10, 'color': 'blue'}, line_kws={'color': 'red'})
-    plt.text(0.05, 0.95, f'$Pearson R = {r_squared:.4f}$', transform=plt.gca().transAxes,
-             fontsize=12, verticalalignment='top')
+    pred_posterior_check(c_learned, c_posterior, "c", equal_line=False, title="Refitted vs. posterior ground truth ",
+                         xlabname="Refitted ", ylabname="Posterior ground truth ", filename=filename)
 
-    plt.title('c fitted vs. c posterior truth')
-    plt.xlabel('c fitted')
-    plt.ylabel('c posterior truth')
+    #plt.figure(figsize=(10, 6))
+    #regplot = sns.regplot(data=data, x='c_learned', y='c_posterior', scatter_kws={'s': 10, 'color': 'blue'}, line_kws={'color': 'red'})
+    #scatter = sns.scatterplot(data=data, x='c_learned', y='c_posterior', s=50, color='blue', alpha=0.6)
+
+    #plt.text(0.05, 0.95, f'$Pearson R = {r_squared:.4f}$', transform=plt.gca().transAxes,
+             #fontsize=12, verticalalignment='top')
+
+    #plt.title('c fitted vs. c posterior truth')
+    #plt.xlabel('c fitted')
+    #plt.ylabel('c posterior truth')
     
-    if filename: plt.savefig(filename)
-    plt.show()
+    #if filename: plt.savefig(filename)
+    #plt.show()
+
 
 def ppc_eta(adata, learned_params, filename: str=None):
     echidna_sim = load_model(adata, simulation=True)
@@ -265,31 +271,38 @@ def ppc_eta(adata, learned_params, filename: str=None):
     
     eta_learned, eta_posterior = _sample_arrays(eta_learned, eta_posterior, seed=echidna.config.seed)
     
-    slope, intercept, r_value, p_value, std_err = linregress(eta_learned, eta_posterior)
-    r_squared = r_value
+    #slope, intercept, r_value, p_value, std_err = linregress(eta_learned, eta_posterior)
+    #r_squared = r_value
 
     data = pd.DataFrame({'eta_learned': eta_learned, 'eta_posterior': eta_posterior})
 
-    scatter = sns.scatterplot(data=data, x='eta_learned', y='eta_posterior', s=50, color='blue', alpha=0.6)
-    contour = sns.kdeplot(data=data, x='eta_learned', y='eta_posterior', levels=10, color='red', linewidths=1.5)
+    pred_posterior_check(eta_learned, eta_posterior, "$\eta$", equal_line=False, title="Refitted vs. posterior ground truth ",
+                         xlabname="Refitted ", ylabname="Posterior ground truth ", filename=filename)
 
-    plt.text(
-        0.05, 0.95,
-        f'$Pearson R = {r_squared:.4f}$',
-        transform=scatter.transAxes,
-        fontsize=12,
-        verticalalignment='top',
-    )
+    #scatter = sns.scatterplot(data=data, x='eta_learned', y='eta_posterior', s=50, color='blue', alpha=0.6)
+    #contour = sns.kdeplot(data=data, x='eta_learned', y='eta_posterior', levels=10, color='red', linewidths=1.5)
 
-    scatter.set_title('eta fitted vs. eta posterior truth')
-    scatter.set_xlabel('eta fitted')
-    scatter.set_ylabel('eta posterior truth')
+    #for child in scatter.get_children():
+     #if isinstance(child, plt.Line2D): 
+        #child.set_rasterized(True)
 
-    if filename: plt.savefig(filename)
-    plt.show()
+    #plt.text(
+        #0.05, 0.95,
+        #f'$Pearson R = {r_squared:.4f}$',
+        #transform=scatter.transAxes,
+        #fontsize=12,
+        #verticalalignment='top',
+    #)
+
+    #scatter.set_title('eta fitted vs. eta posterior truth')
+    #scatter.set_xlabel('eta fitted')
+    #scatter.set_ylabel('eta posterior truth')
+
+    #if filename: plt.savefig(filename)
+    #plt.show()
     
-    del echidna
-    del echidna_sim
+    #del echidna
+    #del echidna_sim
 
 def _sample_arrays(learned, observed, max_samples=int(3e4), seed=42):
     rng = np.random.default_rng(seed)
@@ -313,13 +326,15 @@ def pred_posterior_check(
         xlabname: str = "True ",
         ylabname: str = "Simulated ",
         filename: str = None,
+        subsample: bool = True
 ):
-    # Subsample for plotting
-    num = min(len(X_learned.flatten()), 200000)
-    indx = np.random.choice(
-        np.arange(len(X_learned.flatten())), num, replace=False)
-    X_learned = X_learned.flatten()[indx]
-    X_true = X_true.flatten()[indx]
+    if subsample:
+      # Subsample for plotting
+      num = min(len(X_learned.flatten()), 200000)
+      indx = np.random.choice(
+          np.arange(len(X_learned.flatten())), num, replace=False)
+      X_learned = X_learned.flatten()[indx]
+      X_true = X_true.flatten()[indx]
 
     if log_scale:
         X_learned = np.log(X_learned + 1)
@@ -347,27 +362,27 @@ def pred_posterior_check(
         z = gaussian_kde(xy)(xy)
         # Plot using density as color
         plt.scatter(x, y, c=z, cmap='viridis',
-                    alpha=0.5, label='Data points', s=10)
+                    alpha=0.5, label='Data points', s=10, rasterized=True)
     else:
-        plt.scatter(x, y, alpha=0.1, label='Data points')
+        plt.scatter(x, y, alpha=0.6, c='blue',  rasterized=True)
 
     if equal_line:
         plt.plot([minimum, maximum], [minimum, maximum], "r", label="x=y")
 
     # Plot the regression line
-    if R_val:
-        plt.plot(x, y_pred, label="Regression line", color='blue')
+    #if R_val:
+        #plt.plot(x, y_pred, label="Regression line", color='blue')
 
-    plt.xlabel(xlabname + lbl_pstfix)
-    plt.ylabel(ylabname + lbl_pstfix)
+    plt.xlabel(xlabname + lbl_pstfix + name, fontsize=16)
+    plt.ylabel(ylabname + lbl_pstfix + name, fontsize=16)
 
     # Annotate the plot with the R^2 value
     if R_val:
-        plt.text(0.05, 0.95, f'$R^2$ = {r2:.2f}', ha='left', va='center', transform=plt.gca(
-        ).transAxes, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
+        plt.text(0.05, 0.95, f'$PearsonR$ = {r2:.3f}', ha='left', va='center', transform=plt.gca(
+        ).transAxes, fontsize=20, bbox=dict(facecolor='white', alpha=0.5))
 
     plt.legend(loc="lower right")
-    plt.title(title + " " + name)
+    plt.title(title + " " + name, fontsize = 16)
 
     if filename is not None:
         plt.savefig(filename, format='svg')
