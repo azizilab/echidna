@@ -136,7 +136,7 @@ def save_model(adata, model, overwrite=False, simulation=False):
     
     adata.uns["echidna"]["config"] = model.config.to_dict()
 
-def load_model(adata, simulation=False):
+def load_model(adata, save_folder=None, simulation=False):
     """
     Modified from Decipher with author permission:
     Achille Nazaret, https://github.com/azizilab/decipher/blob/main/decipher/tools/_decipher/data.py
@@ -149,6 +149,9 @@ def load_model(adata, simulation=False):
     ----------
     adata : sc.AnnData
         The annotated data matrix.
+    
+    save_folder: str
+        The location of saved model parameters. Default to None.
 
     Returns
     -------
@@ -167,8 +170,8 @@ def load_model(adata, simulation=False):
     model_config = EchidnaConfig(**adata.uns["echidna"]["config"])
     model = Echidna(model_config)
     model_run_id = adata.uns["echidna"][run_id_key]
-    save_folder = ECHIDNA_GLOBALS["save_folder"]
-    full_path = os.path.join(save_folder, model_run_id)
+    save_folder = ECHIDNA_GLOBALS["save_folder"] if save_folder == None else save_folder
+    full_path = os.path.join(save_folder, model_run_id) if save_folder == None else save_folder
     
     model = torch.load(os.path.join(full_path, "echidna_model.pt"), weights_only=False)
     
