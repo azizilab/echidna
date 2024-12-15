@@ -88,7 +88,7 @@ def sample_X(adata, num_cells=None, return_z=False):
     for i, t in enumerate(timepoints):
         timepoint_filter = adata.obs[config["timepoint_label"]]==t
         adata_tmp = adata[timepoint_filter, adata.var["echidna_matched_genes"]]
-        cell_index = rng.choice(range(adata_tmp.shape[0]), num_cells, replace=False)
+        cell_index = range(num_cells)
         z.append(
             torch.tensor(adata_tmp.obs.loc[
                 adata_tmp.obs.index[cell_index], config["clusters"]
@@ -96,15 +96,15 @@ def sample_X(adata, num_cells=None, return_z=False):
         )
         library_size.append(
             torch.tensor(
-                adata_tmp.layers['counts'][cell_index, :].sum(-1, keepdims=True),
+                adata_tmp.obs.loc[:, "total_counts"].iloc[cell_index].values,
                 dtype=torch.float32,
             )
         )
-        
-    library_size = torch.stack(library_size).squeeze() * 1e-5
+    
+    library_size = torch.stack(library_size) * 1e-5
     z = torch.stack(z)
     c = echidna.c_posterior
-    if not bool(config["_is_multi"]): c = c.unsqueeze(0)
+    if bool(config["_is_multi"]) is False: c = c.unsqueeze(0)
     eta = echidna.eta_posterior
 
     mean_scale = torch.mean(eta, axis=-1).repeat(int(config["num_genes"]),1).T
@@ -116,6 +116,7 @@ def sample_X(adata, num_cells=None, return_z=False):
         X = dist.Poisson(rate).sample()
         X_sample.append(X)
     X_sample = torch.stack(X_sample, dim=0).squeeze()
+
     del echidna
     if return_z:
         return X_sample, z
