@@ -15,6 +15,8 @@ from echidna.tools.data import build_torch_tensors
 from echidna.tools.eval import sample
 from echidna.tools.utils import EchidnaConfig, _custom_sort
 from echidna.plot.utils import is_notebook, activate_plot_settings
+from scipy.stats import linregress, gaussian_kde
+
 
 def plate_model(adata, filename: str=None):
     """Display plate model
@@ -103,7 +105,9 @@ def ppc_X(adata, learned_params, filename: str=None):
     
     X_learned = sample(adata_tmp, "X").detach().cpu().numpy()
 
-    plot_true_vs_pred(X_learned, X_true, log_scale=True, name="X", filename=filename)
+    pred_posterior_check(X_learned, X_true, name='X', log_scale=True, R_val=False, 
+                         color_by_density=False, title="Observed vs. reconstructed", 
+                         xlabname="True ", ylabname="Reconstructed ", save=False)
     
 def ppc_W(adata, learned_params, filename: str=None):
     # config = EchidnaConfig.from_dict(adata.uns["echidna"]["config"])
@@ -120,7 +124,7 @@ def ppc_W(adata, learned_params, filename: str=None):
         adata[:, adata.var.echidna_matched_genes].copy(), "W"
     ).detach().cpu().numpy()
     
-    plot_true_vs_pred(W_learned, W_true, name="W", filename=filename)
+    pred_posterior_check(W_learned, W_true, name="W", filename=filename)
 
 def ppc_cov(
     adata,
@@ -296,20 +300,24 @@ def _sample_arrays(learned, observed, max_samples=int(3e4), seed=42):
     
     return learned, observed    
 
-def plot_true_vs_pred(
-    X_learned: np.ndarray,
-    X_true: np.ndarray,
-    name: str="",
-    log_scale: bool=False,
-    color: str=None,
-    filename: str=None,
+def pred_posterior_check(
+        X_learned: np.ndarray,
+        X_true: np.ndarray,
+        name: str = "",
+        log_scale: bool = False,
+        R_val: bool = True,
+        equal_line: bool = True,
+        save: bool = True,
+        color_by_density: bool = False,
+        title: str = "Predictive Posterior Check",
+        xlabname: str = "True ",
+        ylabname: str = "Simulated ",
+        filename = None
 ):
-    """
-    Plot X learned vs. True
-    """
     # Subsample for plotting
     num = min(len(X_learned.flatten()), 200000)
-    indx = np.random.choice(np.arange(len(X_learned.flatten())), num, replace=False)
+    indx = np.random.choice(
+        np.arange(len(X_learned.flatten())), num, replace=False)
     X_learned = X_learned.flatten()[indx]
     X_true = X_true.flatten()[indx]
 
@@ -323,20 +331,45 @@ def plot_true_vs_pred(
     x = X_true
     y = X_learned
 
+    # Perform linear regression
+    if R_val:
+        slope, intercept, r_value, p_value, std_err = linregress(x, y)
+        r2 = r_value**2
+        y_pred = slope * x + intercept
+
     maximum = max(np.max(x), np.max(y))
     minimum = min(np.min(x), np.min(y))
-    # scatter plot
-    plt.scatter(x, y, alpha=0.1)
-    plt.plot([minimum, maximum], [minimum, maximum], "r", label="x=y")
-    plt.xlabel("True " + lbl_pstfix)
-    plt.ylabel("Learned " + lbl_pstfix)
 
-    # Fit a line through x and y
-    color = 'g--' if color is None else color + '--'
-    z = np.polyfit(x, y, 1)
-    p = np.poly1d(z)
-    plt.plot(x, p(x), color, label="Fit line")
-    plt.title(f"Comprarison of true and learned vals {name} (subsampled)")
+    # Scatter plot
+    if color_by_density:
+        # Calculate point densities
+        xy = np.vstack([x, y])
+        z = gaussian_kde(xy)(xy)
+        # Plot using density as color
+        plt.scatter(x, y, c=z, cmap='viridis',
+                    alpha=0.5, label='Data points', s=10)
+    else:
+        plt.scatter(x, y, alpha=0.1, label='Data points')
+
+    if equal_line:
+        plt.plot([minimum, maximum], [minimum, maximum], "r", label="x=y")
+
+    # Plot the regression line
+    if R_val:
+        plt.plot(x, y_pred, label="Regression line", color='blue')
+
+    plt.xlabel(xlabname + lbl_pstfix)
+    plt.ylabel(ylabname + lbl_pstfix)
+
+    # Annotate the plot with the R^2 value
+    if R_val:
+        plt.text(0.05, 0.95, f'$R^2$ = {r2:.2f}', ha='left', va='center', transform=plt.gca(
+        ).transAxes, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
+
     plt.legend()
-    if filename: plt.savefig(filename)
+    plt.title(title + " " + name)
+
+    if save:
+        plt.savefig(filename, format='svg')
+
     plt.show()

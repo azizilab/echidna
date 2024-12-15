@@ -88,7 +88,6 @@ def sample_X(adata, num_cells=None, return_z=False):
     for i, t in enumerate(timepoints):
         timepoint_filter = adata.obs[config["timepoint_label"]]==t
         adata_tmp = adata[timepoint_filter, adata.var["echidna_matched_genes"]]
-        
         cell_index = rng.choice(range(adata_tmp.shape[0]), num_cells, replace=False)
         z.append(
             torch.tensor(adata_tmp.obs.loc[
@@ -97,11 +96,12 @@ def sample_X(adata, num_cells=None, return_z=False):
         )
         library_size.append(
             torch.tensor(
-                adata_tmp.obs.loc[:, "total_counts"].iloc[cell_index].values,
+                adata_tmp.layers['counts'][cell_index, :].sum(-1, keepdims=True),
                 dtype=torch.float32,
             )
         )
-    library_size = torch.stack(library_size) * 1e-5
+        
+    library_size = torch.stack(library_size).squeeze() * 1e-5
     z = torch.stack(z)
     c = echidna.c_posterior
     if not bool(config["_is_multi"]): c = c.unsqueeze(0)
@@ -112,7 +112,7 @@ def sample_X(adata, num_cells=None, return_z=False):
 
     X_sample = []
     for t in range(int(config["num_timepoints"])):
-        rate = c_scaled[t, z[t], :] * library_size.T[:,t].view(-1,1)
+        rate = c_scaled[t, z[t], :] * library_size[t,:].view(-1,1)
         X = dist.Poisson(rate).sample()
         X_sample.append(X)
     X_sample = torch.stack(X_sample, dim=0).squeeze()
