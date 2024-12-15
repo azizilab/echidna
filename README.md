@@ -7,7 +7,7 @@
 <img src=./echidna_concept.png width="800" />
 
 
-# Examples
+# Tutorial
 
 There are four example notebooks:
 
