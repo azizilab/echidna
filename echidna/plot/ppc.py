@@ -104,10 +104,11 @@ def ppc_X(adata, learned_params, filename: str=None):
     X_true = np.array(X_true).squeeze()
     
     X_learned = sample(adata_tmp, "X").detach().cpu().numpy()
-
-    pred_posterior_check(X_learned, X_true, name='X', log_scale=True, R_val=False, 
-                         color_by_density=False, title="Observed vs. reconstructed", 
-                         xlabname="True ", ylabname="Reconstructed ", save=False)
+    pred_posterior_check(
+        X_learned, X_true, name='X', log_scale=True, R_val=False,
+        color_by_density=False, title="Observed vs. reconstructed",
+        xlabname="True ", ylabname="Reconstructed ", filename=filename,
+    )
     
 def ppc_W(adata, learned_params, filename: str=None):
     # config = EchidnaConfig.from_dict(adata.uns["echidna"]["config"])
@@ -307,12 +308,11 @@ def pred_posterior_check(
         log_scale: bool = False,
         R_val: bool = True,
         equal_line: bool = True,
-        save: bool = True,
         color_by_density: bool = False,
         title: str = "Predictive Posterior Check",
         xlabname: str = "True ",
         ylabname: str = "Simulated ",
-        filename = None
+        filename: str = None,
 ):
     # Subsample for plotting
     num = min(len(X_learned.flatten()), 200000)
@@ -366,10 +366,10 @@ def pred_posterior_check(
         plt.text(0.05, 0.95, f'$R^2$ = {r2:.2f}', ha='left', va='center', transform=plt.gca(
         ).transAxes, fontsize=12, bbox=dict(facecolor='white', alpha=0.5))
 
-    plt.legend()
+    plt.legend(loc="lower right")
     plt.title(title + " " + name)
 
-    if save:
+    if filename is not None:
         plt.savefig(filename, format='svg')
 
     plt.show()
