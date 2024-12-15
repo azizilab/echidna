@@ -5,3 +5,5 @@ hmmlearn
 pyro-ppl>=1.9.1
 graphviz
 requests
+scikit-learn
+leidenalg

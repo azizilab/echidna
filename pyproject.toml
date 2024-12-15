@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "echidna"
+version = "1.0.0"
+description = "Mapping genotype to phenotype through joint probabilistic modeling of single-cell gene expression and chromosomal copy number variation."
+authors = [
+    "Joy Linyue Fan <lf2684@columbia.edu>",
+    "Mingxuan Zhang <mz2934@cumc.columbia.edu>",
+    "William O'Brien <wob@cs.ucla.edu>",
+    "Joshua Myers <jm5707@columbia.edu>",
+]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/azizilab/echidna"
+repository = "https://github.com/azizilab/echidna"
+keywords = ["scRNA", "wgs", "cnv"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+scanpy = ">=1.10"
+pandas = "*"
+seaborn = "*"
+hmmlearn = "*"
+pyro-ppl = ">=1.9.1"
+graphviz = "*"
+requests = "*"
+scikit-learn = "*"
+leidenalg = "*"
+
+[build-system]
+requires = ["poetry>=1.1.0"]
+build-backend = "poetry.core.masonry.api"
