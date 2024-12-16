@@ -1,5 +1,6 @@
 scanpy>=1.10
 pandas
+numpy>=1.21
 seaborn
 hmmlearn
 pyro-ppl>=1.9.1

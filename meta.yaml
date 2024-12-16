@@ -1,0 +1,47 @@
+{% set version = "1.0.0" %}
+package:
+  name: echidna
+  version: {{ version }}
+
+source:
+  url: https://pypi.io/packages/source/e/echidna/echidna-{{ version }}.tar.gz
+  sha256: ab4037371f1908655415710993f8bbf3db65571d6e9cabc41368f028be44ad59
+
+build:
+  number: 0
+  script: "{{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv"
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+  run:
+    - python >=3.10
+    - scanpy >=1.10
+    - numpy >=1.21
+    - pandas
+    - seaborn
+    - hmmlearn
+    - pyro-ppl >=1.9.1
+    - graphviz
+    - requests
+    - scikit-learn
+    - leidenalg
+
+test:
+  imports:
+    - echidna
+
+about:
+  home: https://github.com/azizilab/echidna
+  license: MIT
+  summary: "Mapping genotype to phenotype through joint probabilistic modeling of single-cell gene expression and chromosomal copy number variation."
+  authors:
+    - "Joy Linyue Fan"
+    - "Mingxuan Zhang"
+    - "William O'Brien"
+    - "Joshua Myers"
+
+extra:
+  identifiers:
+    - biotools:echidna

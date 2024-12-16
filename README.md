@@ -6,6 +6,17 @@
 
 <img src=./echidna_concept.png width="800" />
 
+# Install
+
+Echidna is available on PyPI under the name `echidna-sc`.
+
+## Step 1 (optional but recommended)
+Create a conda environment with a recent Python version: conda create -n "echidna-env" python=3.10
+
+## Step 2
+Ensure you have the right version of torch installed for your device. See instructions on [pytorch.org](https://pytorch.org/get-started/locally/).
+
+Echidna is available through pip via: `pip install echidna-sc`.
 
 # Tutorial
 
