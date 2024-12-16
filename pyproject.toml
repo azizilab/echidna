@@ -1,7 +1,8 @@
 [tool.poetry]
-name = "echidna"
+name = "echidna-sc"
 version = "1.0.0"
 description = "Mapping genotype to phenotype through joint probabilistic modeling of single-cell gene expression and chromosomal copy number variation."
+packages = [{include = "echidna", from="."}]
 authors = [
     "Joy Linyue Fan <lf2684@columbia.edu>",
     "Mingxuan Zhang <mz2934@cumc.columbia.edu>",
@@ -22,6 +23,7 @@ classifiers = [
 [tool.poetry.dependencies]
 python = "^3.10"
 scanpy = ">=1.10"
+numpy = ">=1.21"
 pandas = "*"
 seaborn = "*"
 hmmlearn = "*"
