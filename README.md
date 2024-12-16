@@ -1,22 +1,22 @@
 # Echidna
 <img src=./echidna_logo.png width="100" />
 
- A Bayesian framework for quantifying gene dosage effect impacting phenotypic plasticity through integrating single-cell RNA sequencing (scRNA-seq) and bulk whole-genome sequencing (WGS) from a single or multiple time points. 
+ A Bayesian framework for quantifying gene dosage effect on phenotypic plasticity through integrating single-cell RNA sequencing (scRNA-seq) and bulk whole-genome sequencing (WGS) from a single or multiple time points. 
 
 
 <img src=./echidna_concept.png width="800" />
 
 # Install
 
-Echidna is available on PyPI under the name `echidna-sc`.
+Echidna is [available on PyPI](https://pypi.org/project/sc-echidna/1.0.0/) under the name `sc-echidna`.
 
 ## Step 1 (optional but recommended)
-Create a conda environment with a recent Python version: conda create -n "echidna-env" python=3.10
+Create a conda environment with a recent Python version: `conda create -n "echidna-env" python=3.10`.
 
 ## Step 2
 Ensure you have the right version of torch installed for your device. See instructions on [pytorch.org](https://pytorch.org/get-started/locally/).
 
-Echidna is available through pip via: `pip install echidna-sc`.
+Echidna is available through pip via: `pip install sc-echidna`.
 
 # Tutorial
 
