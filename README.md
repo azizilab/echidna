@@ -1,7 +1,7 @@
 # Echidna
 <img src=./echidna_logo.png width="100" />
 
- A Bayesian framework for quantifying gene dosage effect impacting phenotypic plasticity through integrating single-cell RNA sequencing (scRNA-seq) and bulk whole-genome sequencing (WGS) from a single or multiple time points. 
+ A Bayesian framework for quantifying gene dosage effect on phenotypic plasticity through integrating single-cell RNA sequencing (scRNA-seq) and bulk whole-genome sequencing (WGS) from a single or multiple time points. 
 
 
 <img src=./echidna_concept.png width="800" />
