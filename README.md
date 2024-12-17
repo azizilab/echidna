@@ -16,7 +16,7 @@ Create a conda environment with a recent Python version: `conda create -n "echid
 ## Step 2
 Ensure you have the right version of torch installed for your device. See instructions on [pytorch.org](https://pytorch.org/get-started/locally/).
 
-Echidna is available through pip via: `pip install sc-echidna`.
+Echidna is available through pip via: `pip install sc-echidna`. Installation time depends on hardware, but can be finished within 5 minutes for most computers.
 
 # Tutorial
 
@@ -31,7 +31,7 @@ The notebooks are meant to be run sequentially, and they build off of each other
 
 Notebook 1 introduces you to the package - preparing your data, setting hyperparamters, performing posterior predictive checks - with data collected from a single point in time.
 
-In notebook 2, we look at a multi-timepoint setting, where we have paired single-cell and WGS data collected over time. 
+In notebook 2, we look at a multi-timepoint setting, where we have paired single-cell and WGS data collected over time. The demo dataset included in ./demo_data is the same data we used for this notebook.
 
 The saved model runs from notebook 2 will be used in notebook 3, where you will see how to infer amplifications and deletions by cluster of genes across a given genome. This notebook also shows you how to calculate and plot gene dosage effect with Echidna.
 
