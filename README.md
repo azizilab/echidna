@@ -16,7 +16,7 @@ Create a conda environment with a recent Python version: `conda create -n "echid
 ## Step 2
 Ensure you have the right version of torch installed for your device. See instructions on [pytorch.org](https://pytorch.org/get-started/locally/).
 
-Echidna is available through pip via: `pip install sc-echidna`.
+Echidna is available through pip via: `pip install sc-echidna`. Installation time depends on hardware, but can be finished within 5 minutes for most computers.
 
 # Tutorial
 
