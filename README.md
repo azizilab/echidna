@@ -21,7 +21,7 @@ Ensure you have the right version of torch installed for your device. See instru
 `conda install bioconda::echidna`
 
 ### Pip Formula
-`pip install sc-echidna`.
+`pip install sc-echidna`
 
 Installation time depends on hardware, but can be finished within 5 minutes for most computers.
 
