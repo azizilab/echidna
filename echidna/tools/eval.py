@@ -259,12 +259,13 @@ def distance_matrix_helper(eta, similarity_metric):
 def eta_tree_elbow_thresholding(
     eta,
     similarity_metric,
+    link_method: str = 'ward',
     link_metric: str = 'euclidean',
     plot_dendrogram: bool=False,
     plot_elbow: bool=False
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
+    #link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
     Z = linkage(dist_mat, method=link_method, metric=link_metric)
     distance = Z[:, 2]
     differences = np.diff(distance)
@@ -282,9 +283,9 @@ def eta_tree_elbow_thresholding(
         return fig
     elif plot_dendrogram:
         fig, ax = plt.subplots()
-        dendrogram(Z, color_threshold=threshold, no_plot=False, ax=ax)
+        dn = dendrogram(Z, color_threshold=threshold, no_plot=False, ax=ax)
         ax.set_title("Echidna Clusters Hierarchy")
-        return fig
+        return dn
     else: 
         logger.info(f"Dendrogram knee point: {knee_point + 1}")
         logger.info(f"Dendrogram threshold: {threshold:.4f}")
@@ -294,12 +295,13 @@ def eta_tree_cophenetic_thresholding(
     eta, 
     similarity_metric,
     link_metric: str = 'euclidean',
+    link_method: str = 'ward',
     frac=0.7, 
     dist_matrix=False,
     plot_dendrogram: bool=False,
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
+    #link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
     if dist_matrix:
         Z = linkage(squareform(dist_mat), method=link_method, metric=link_metric)
     else:
@@ -319,10 +321,11 @@ def eta_tree(
     similarity_metric,
     thres: float, 
     link_metric: str = 'euclidean',
+    link_method: str = 'ward',
     plot_dendrogram: bool=False
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
+    #link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
     Z = linkage(dist_mat, method=link_method, metric=link_metric)
     if not plot_dendrogram:
         return dendrogram(Z, color_threshold=thres, no_plot=True)
@@ -371,6 +374,8 @@ def echidna_clones(
     method: str="elbow",
     metric: str=None,
     threshold: float=0.,
+    link_method: str = "ward",
+    link_metric: str = "euclidean"
 ):
     echidna = load_model(adata)
     metric = "smoothed_corr" if metric is None else metric
@@ -384,11 +389,13 @@ def echidna_clones(
     
     if method == "elbow":
         dn = eta_tree_elbow_thresholding(
-            echidna.eta_posterior, similarity_metric=metric
+            echidna.eta_posterior, similarity_metric=metric,
+            link_method=link_method, link_metric=link_metric, plot_dendrogram=True
         )
     elif method == "cophenetic":
         dn = eta_tree_cophenetic_thresholding(
-            echidna.eta_posterior, similarity_metric=metric
+            echidna.eta_posterior, similarity_metric=metric,
+            link_method=link_method, link_metric=link_metric
         )
     else:
         adata.uns["echidna"]["save_data"]["threshold"] = threshold
@@ -398,7 +405,8 @@ def echidna_clones(
                 "you must set `threshold` manually. Default `threshold=0`."
             )
         dn = eta_tree(
-            echidna.eta_posterior, similarity_metric=metric, thres=threshold
+            echidna.eta_posterior, similarity_metric=metric, thres=threshold,
+            link_method=link_method, link_metric=link_metric
         )
     
     assign_clones(dn, adata)
