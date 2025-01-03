@@ -259,12 +259,13 @@ def distance_matrix_helper(eta, similarity_metric):
 def eta_tree_elbow_thresholding(
     eta,
     similarity_metric,
+    link_metric: str = 'euclidean',
     plot_dendrogram: bool=False,
     plot_elbow: bool=False
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_metric = "ward" if similarity_metric == "smoothed_corr" else "average"
-    Z = linkage(dist_mat, link_metric)
+    link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
+    Z = linkage(dist_mat, method=link_method, metric=link_metric)
     distance = Z[:, 2]
     differences = np.diff(distance)
     knee_point = np.argmax(differences)
@@ -292,16 +293,17 @@ def eta_tree_elbow_thresholding(
 def eta_tree_cophenetic_thresholding(
     eta, 
     similarity_metric,
+    link_metric: str = 'euclidean',
     frac=0.7, 
     dist_matrix=False,
     plot_dendrogram: bool=False,
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_metric = "ward" if similarity_metric == "smoothed_corr" else "average"
+    link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
     if dist_matrix:
-        Z = linkage(squareform(dist_mat), link_metric)
+        Z = linkage(squareform(dist_mat), method=link_method, metric=link_metric)
     else:
-        Z = linkage(dist_mat, link_metric)
+        Z = linkage(dist_mat, method=link_method, metric=link_metric)
     coph_distances = cophenet(Z)
     max_coph_distance = np.max(coph_distances)
     threshold = frac * max_coph_distance
@@ -316,11 +318,12 @@ def eta_tree(
     eta, 
     similarity_metric,
     thres: float, 
+    link_metric: str = 'euclidean',
     plot_dendrogram: bool=False
 ):
     dist_mat = distance_matrix_helper(eta, similarity_metric)
-    link_metric = "ward" if similarity_metric == "smoothed_corr" else "average"
-    Z = linkage(dist_mat, link_metric)
+    link_method = "ward" if similarity_metric == "smoothed_corr" else "average"
+    Z = linkage(dist_mat, method=link_method, metric=link_metric)
     if not plot_dendrogram:
         return dendrogram(Z, color_threshold=thres, no_plot=True)
     else:
