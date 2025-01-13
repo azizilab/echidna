@@ -299,6 +299,13 @@ def _get_states(
 
     return cnvs
 
+def _estimate_peaks(gmm):
+    weights = gmm.weights_
+    variance = gmm.covariances_.flatten()
+    std = np.sqrt(variance)
+    assert weights.shape == std.shape
+    return weights / (np.sqrt(2 * np.pi) * std)
+
 def _get_neutral_state(
     eta_filtered_smooth: np.ndarray,
     eta_column_labels: List[str],
@@ -313,7 +320,8 @@ def _get_neutral_state(
         cur_vals_filtered = eta_filtered_smooth[:, i].reshape(-1,1)
         gmm = GaussianMixture(n_components=n_components, random_state=random_state).fit(cur_vals_filtered)
         labels = gmm.predict(cur_vals_filtered)
-        neut_component = mode(labels, keepdims=False).mode
+        #neut_component = mode(labels, keepdims=False).mode
+        neut_component = np.argmax(_estimate_peaks(gmm))
 
         gmm_mean = np.mean(cur_vals_filtered[labels == neut_component])
         gmm_std = np.std(cur_vals_filtered[labels == neut_component])
@@ -341,6 +349,7 @@ def _plot_gmm_clusters(gmm, vals_filtered, gmm_mean, i):
 
     for mean, variance, weight in zip(gmm.means_, gmm.covariances_, gmm.weights_):
         variance = np.sqrt(variance).flatten()
+        #variance = variance.flatten()
         label = f'Component mean={mean[0]:.3f}'
         color = 'red' if np.isclose(mean[0], gmm_mean, atol=0.1) else None
         linewidth = 3 if color == 'red' else 1
