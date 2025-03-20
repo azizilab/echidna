@@ -357,6 +357,12 @@ def dendrogram(adata, elbow: bool=False, filepath: str=None):
     if filepath: save_figure(fig, filepath)
     del echidna
 
+
+
+
+echidna_clone_colors = [
+    "#6fe3b6", "#efd5d1", "#181a75", "#d47372", "#acc2b8", "#a04cd0"
+]
 def echidna(
     adata,
     color=["echidna_clones"],
@@ -381,12 +387,13 @@ def echidna(
         The matplotlib figure.
     """
     activate_plot_settings()
+
+    adata.uns["echidna_clones_colors"] = echidna_clone_colors
     
     fig = sc.pl.embedding(
         adata,
         basis=basis,
         color=color,
-        color_map="cool_r",
         frameon=True,
         show=True,
         sort_order=True,
