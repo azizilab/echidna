@@ -369,6 +369,7 @@ def echidna(
     basis="X_umap",
     filepath=None,
     return_fig=False,
+    show=False,
     **kwargs,
 ):
     """
@@ -395,7 +396,7 @@ def echidna(
         basis=basis,
         color=color,
         frameon=True,
-        show=True,
+        show=show,
         sort_order=True,
         return_fig=True,
         **kwargs,
