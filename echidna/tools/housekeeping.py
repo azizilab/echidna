@@ -136,7 +136,7 @@ def save_model(adata, model, overwrite=False, simulation=False):
     
     adata.uns["echidna"]["config"] = model.config.to_dict()
 
-def load_model(adata, save_folder=None, simulation=False):
+def load_model(adata, save_folder=None, model_config=None, simulation=False):
     """
     Modified from Decipher with author permission:
     Achille Nazaret, https://github.com/azizilab/decipher/blob/main/decipher/tools/_decipher/data.py
@@ -163,13 +163,13 @@ def load_model(adata, save_folder=None, simulation=False):
     run_id_key = "run_id_sim" if simulation else "run_id"
     run_id_key_hist = "run_id_sim_history" if simulation else "run_id_history"
     
-    if run_id_key not in adata.uns["echidna"]:
+    if (run_id_key not in adata.uns["echidna"]) & (save_folder is None):
         sim = "" if not simulation else "simulation "
-        raise ValueError(f"No echidna {sim}model has been saved for this AnnData object.")
+        raise ValueError(f"No echidna {sim}model has been saved for this AnnData object and no model path is provided.")
 
-    model_config = EchidnaConfig(**adata.uns["echidna"]["config"])
+    model_config = EchidnaConfig(**adata.uns["echidna"]["config"]) if save_folder is None else model_config
     model = Echidna(model_config)
-    model_run_id = adata.uns["echidna"][run_id_key]
+    model_run_id = adata.uns["echidna"][run_id_key] if save_folder is None else "not required"
     save_folder_path = ECHIDNA_GLOBALS["save_folder"] if save_folder is None else save_folder
     full_path = os.path.join(save_folder_path, model_run_id) if save_folder is None else save_folder
     model = torch.load(os.path.join(full_path, "echidna_model.pt"), weights_only=False)

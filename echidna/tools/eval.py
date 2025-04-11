@@ -135,21 +135,29 @@ def sample_W(adata, num_samples=(1,)):
     del echidna
     return W
 
-def sample_c(adata, num_samples=(1,)) -> torch.Tensor:
-    """Sample C from posterior and selec a target cluster for
-    a given time point.
+def get_dim_ind(adata):
+    clst, time = adata.uns['echidna']['config']['clusters'], adata.uns['echidna']['config']['timepoint_label'] 
+    df = adata.obs[[clst, time]].copy()
+    df[clst] = df[clst].astype(int)
+    cluster_condition_ = df.groupby(clst)[time].agg(lambda x: x.mode()[0])
+    cond_keys = list(cluster_condition_.unique())
+    cond_keys_ordered = sorted(cond_keys, key=lambda k: adata.uns['echidna']['timepoint_order'][k])
+    dim_ind = [cond_keys_ordered.index(t) for t in list(cluster_condition_)]
+    return dim_ind
+
+def sample_c(adata, num_samples=1000) -> torch.Tensor:
+    """Sample C from posterior
     """
-    config = adata.uns["echidna"]["config"]
     echidna = load_model(adata)
-    
-    eta = dist.MultivariateNormal(
-        echidna.eta_posterior.expand(config["num_clusters"], -1).T,
-        covariance_matrix=echidna.cov_posterior
-    ).sample()
-    c_sample = dist.Gamma(pyro.param("c_shape"), 1/eta)
-    c_sample = c_sample.sample(num_samples).squeeze()
+    eta_samples = sample_eta(adata, num_samples)
+    c_shape = pyro.param("c_shape").squeeze()
+    dims_for_c_shape = get_dim_ind(adata)
+    c_samples = []
+    for d in dims_for_c_shape:
+        c_sample = dist.Gamma(c_shape[d].unsqueeze(0).repeat(num_samples, 1), 1/eta_samples[:, :, d]).sample()
+        c_samples.append(c_sample)
     del echidna
-    return c_sample
+    return torch.stack(c_samples, dim=-1)
 
 def sample_eta(adata, num_samples=1000):
     """Sample eta from posterior
