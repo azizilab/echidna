@@ -23,7 +23,7 @@ from echidna.utils import get_logger
 
 logger = get_logger(__name__)
 
-def sample(adata, variable, **kwargs):
+def sample(adata, variable, conditional_samples=None, **kwargs):
     if isinstance(variable, str):
         variable = [variable]
     elif not isinstance(variable, list):
@@ -41,7 +41,7 @@ def sample(adata, variable, **kwargs):
     sample_funcs = {
         "X": sample_X,
         "W": sample_W,
-        "c": sample_c,
+        "c": lambda adata, **kwargs: sample_c(adata, conditional_samples, **kwargs),
         "eta": sample_eta,
         "cov": sample_cov,
     }
@@ -145,11 +145,10 @@ def get_dim_ind(adata):
     dim_ind = [cond_keys_ordered.index(t) for t in list(cluster_condition_)]
     return dim_ind
 
-def sample_c(adata, num_samples=1000) -> torch.Tensor:
-    """Sample C from posterior
+def sample_c(adata, eta_samples, num_samples=1000) -> torch.Tensor:
+    """Sample c|eta from conditional posterior
     """
     echidna = load_model(adata)
-    eta_samples = sample_eta(adata, num_samples)
     c_shape = pyro.param("c_shape").squeeze()
     dims_for_c_shape = get_dim_ind(adata)
     c_samples = []
@@ -159,14 +158,20 @@ def sample_c(adata, num_samples=1000) -> torch.Tensor:
     del echidna
     return torch.stack(c_samples, dim=-1)
 
+def softplus_inverse(y):
+    return y + torch.log(-torch.expm1(-y))
+
 def sample_eta(adata, num_samples=1000):
     """Sample eta from posterior
     """
     config = adata.uns["echidna"]["config"]
     echidna = load_model(adata)
     
+    eta_mean_softplus = echidna.eta_posterior.T
+    eta_mean_linear = softplus_inverse(eta_mean_softplus)
+    
     eta_posterior = dist.MultivariateNormal(
-        echidna.eta_posterior.T,
+        eta_mean_linear,
         covariance_matrix=echidna.cov_posterior
     )
     eta_samples = eta_posterior.sample([num_samples,]).squeeze()

@@ -73,6 +73,7 @@ def echi_cnv(
     filter_quantile: float=.7,
     smoother_sigma: float=6,
     smoother_radius: float=8,
+    neut_method: str="peak",
     **kwargs,
 ) -> None:
     if genome is None:
@@ -136,6 +137,7 @@ def echi_cnv(
         clone_cols,
         n_components=n_gmm_components,
         random_state=random_state,
+        neut_method=neut_method,
         **kwargs
     )
     
@@ -310,6 +312,7 @@ def _get_neutral_state(
     eta_filtered_smooth: np.ndarray,
     eta_column_labels: List[str],
     n_components: int=5,
+    neut_method: str = "peak",
     plot_gmm: bool=False,
     random_state: int=None,
     **args,
@@ -321,7 +324,14 @@ def _get_neutral_state(
         gmm = GaussianMixture(n_components=n_components, random_state=random_state).fit(cur_vals_filtered)
         labels = gmm.predict(cur_vals_filtered)
         #neut_component = mode(labels, keepdims=False).mode
-        neut_component = np.argmax(_estimate_peaks(gmm))
+        if neut_method == "peak":
+            neut_component = np.argmax(_estimate_peaks(gmm))
+        elif neut_method == "count_mode":
+            neut_component = mode(labels, keepdims=False).mode
+        else:
+            raise ValueError(
+                f"Unknown method for neutral state detection: {neut_method}. Choose from 'peak' or 'count_mode'."
+            )
 
         gmm_mean = np.mean(cur_vals_filtered[labels == neut_component])
         gmm_std = np.std(cur_vals_filtered[labels == neut_component])
