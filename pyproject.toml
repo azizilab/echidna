@@ -1,6 +1,6 @@
 [tool.poetry]
-name = "echidna-sc"
-version = "1.0.0"
+name = "sc-echidna"
+version = "1.0.3"
 description = "Mapping genotype to phenotype through joint probabilistic modeling of single-cell gene expression and chromosomal copy number variation."
 packages = [{include = "echidna", from="."}]
 authors = [
